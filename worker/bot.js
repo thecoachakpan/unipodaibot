@@ -528,7 +528,7 @@ STRICT CONSTRAINTS & BEHAVIOR:
 6. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
 7. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
 8. Timezones: Always format call schedules and deadlines with explicit cohort timezones: CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
-9. Focus Shield: Politely decline off-topic requests (e.g., cat poems, general non-program homework) stating your specific setup as the METI AI Cohort helper.
+9. Focus Shield & Off-Topic Filter: You are strictly the AI assistant for the UniPods METI AI Innovation Cohort. If a user prompt is completely UNRELATED to the METI AI program, cohort tracks, portals, schedules, assignments, deadlines, or technical platform issues (e.g. general trivia, random jokes, recipes, sports, weather, non-program coding homework), output EXACTLY: "[OFF_TOPIC]". Do NOT answer off-topic queries.
 10. Unverified Facts: If an answer cannot be verified, inform the user in their language:
    - English: "I don't have verified information on this yet. Please contact the team at unipods.regional@undp.org."
    - French: "Je n'ai pas encore d'informations vérifiées à ce sujet. Veuillez contacter l'équipe à unipods.regional@undp.org."
@@ -758,10 +758,8 @@ async function startBot() {
     const mentionsAdmin = !!mentionedAdmin;
     const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('podpal') || cleanLower.includes('bot');
 
-    // Program-Related Inquiry Detector for Groups (Triggers on questions, track keywords, or portal queries)
-    const isQuestionOrInquiry = rawText.includes('?') || 
-                                /^(what|when|where|how|who|why|can|could|is|are|do|does|will|please|help|any)/i.test(cleanPrompt) ||
-                                /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate)/i.test(cleanPrompt);
+    // Program-Related Inquiry Detector for Groups (Triggers strictly on program keywords or portal queries)
+    const isQuestionOrInquiry = /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project)/i.test(cleanPrompt);
 
     // Group Chat Scope Filtering (Processes quote-replies, mentions, tags, or any program inquiries)
     if (isGroup) {
@@ -904,8 +902,16 @@ async function startBot() {
         contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: `${cleanPrompt}\n\n${getLiveTimestampContext()}` }] }];
       }
 
-      // 3-Tier AI Pipeline Execution: Primary (Groq openai/gpt-oss-120b) -> 1st Fallback (gemini-3.5-flash-lite) -> 2nd Fallback (gemini-3.1-flash-lite)
+      // 4-Tier AI Pipeline Execution: Primary (OpenAI gpt-5.6-luna) -> Tier 2 (Groq Llama 3.3 70B) -> Tier 3 (Gemini 3.5 Flash) -> Tier 4 (Gemini 3.1 Flash)
       let replyText = await callAiWithFallbackChain(contentsPayload, systemInstruction);
+
+      // Silent drop off-topic questions
+      if (replyText && replyText.includes('[OFF_TOPIC]')) {
+        console.log(`[Focus Shield]: Silently dropping off-topic query from ${senderParticipant}`);
+        await sock.sendPresenceUpdate('paused', senderJid);
+        return;
+      }
+
       replyText = formatWhatsAppMarkdown(replyText || 'Unable to generate response.');
 
       // ----------------------------------------------------

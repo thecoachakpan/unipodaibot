@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   Bot, Power, Shield, PlusCircle, HelpCircle, 
-  BookOpen, LogOut, CheckCircle, RefreshCw, Calendar, Trash2
+  BookOpen, LogOut, CheckCircle, RefreshCw, Calendar, Trash2, Edit3, XCircle
 } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -21,6 +21,7 @@ export default function AdminDashboard() {
   
   const [newContent, setNewContent] = useState('');
   const [course, setCourse] = useState('General');
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -64,17 +65,62 @@ export default function AdminDashboard() {
   };
 
   const saveKnowledge = async () => {
-    if (!newContent.trim()) return;
-    setStatusMsg('Publishing to Knowledge Base...');
-    await supabase.from('knowledge_entries').insert({ course_name: course, content: newContent });
-    setNewContent('');
-    setStatusMsg('Published! Bot context updated.');
+    if (!newContent.trim()) {
+      setStatusMsg('⚠️ Please enter Q&A / guideline content before publishing.');
+      setTimeout(() => setStatusMsg(''), 3000);
+      return;
+    }
+
+    if (editingId) {
+      setStatusMsg('Updating Knowledge Base entry...');
+      const { error } = await supabase
+        .from('knowledge_entries')
+        .update({ course_name: course, content: newContent })
+        .eq('id', editingId);
+
+      if (error) {
+        setStatusMsg(`⚠️ Update failed: ${error.message}`);
+      } else {
+        setStatusMsg('✅ Knowledge entry updated successfully! Bot context refreshed.');
+        setEditingId(null);
+        setNewContent('');
+      }
+    } else {
+      setStatusMsg('Publishing to Knowledge Base...');
+      const { error } = await supabase
+        .from('knowledge_entries')
+        .insert({ course_name: course, content: newContent });
+
+      if (error) {
+        setStatusMsg(`⚠️ Publish failed: ${error.message}`);
+      } else {
+        setStatusMsg('✅ Published! Bot context updated.');
+        setNewContent('');
+      }
+    }
+
     fetchData();
-    setTimeout(() => setStatusMsg(''), 2500);
+    setTimeout(() => setStatusMsg(''), 3000);
+  };
+
+  const startEditKnowledge = (entry: any) => {
+    setEditingId(entry.id);
+    setCourse(entry.course_name || 'General');
+    setNewContent(entry.content || '');
+    window.scrollTo({ top: 300, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setNewContent('');
+    setCourse('General');
   };
 
   const deleteKnowledge = async (id: number) => {
     await supabase.from('knowledge_entries').delete().eq('id', id);
+    if (editingId === id) {
+      cancelEdit();
+    }
     fetchData();
   };
 
@@ -223,9 +269,22 @@ export default function AdminDashboard() {
 
           {/* Knowledge Publisher */}
           <div className="glass-card p-6">
-            <div className="flex items-center gap-2.5 mb-4">
-              <PlusCircle className="w-5 h-5 text-emerald-400" />
-              <h2 className="font-semibold text-sm">Publish Grounded FAQ / Meeting Update</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                {editingId ? <Edit3 className="w-5 h-5 text-blue-400" /> : <PlusCircle className="w-5 h-5 text-emerald-400" />}
+                <h2 className="font-semibold text-sm">
+                  {editingId ? 'Edit Grounded Knowledge Entry' : 'Publish Grounded FAQ / Meeting Update'}
+                </h2>
+              </div>
+              {editingId && (
+                <button
+                  onClick={cancelEdit}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Cancel Edit</span>
+                </button>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -254,13 +313,23 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <button
-                onClick={saveKnowledge}
-                className="glass-button text-xs flex items-center gap-2"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Publish to Grounded Knowledge Base</span>
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={saveKnowledge}
+                  className={`glass-button text-xs flex items-center gap-2 ${editingId ? 'bg-blue-600/30 border-blue-500/50 hover:bg-blue-600/40 text-blue-200' : ''}`}
+                >
+                  {editingId ? <Edit3 className="w-4 h-4" /> : <PlusCircle className="w-4 h-4" />}
+                  <span>{editingId ? 'Update Knowledge Base Entry' : 'Publish to Grounded Knowledge Base'}</span>
+                </button>
+                {editingId && (
+                  <button
+                    onClick={cancelEdit}
+                    className="px-4 py-2.5 rounded-xl border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white text-xs font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -293,34 +362,55 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Knowledge Base Entries Browser */}
+        </div>
+
+        {/* Knowledge Base Entries Browser */}
+        <div className="lg:col-span-3">
           <div className="glass-card p-6">
-            <div className="flex items-center gap-2.5 mb-4">
-              <BookOpen className="w-5 h-5 text-blue-400" />
-              <h2 className="font-semibold text-sm">Active Knowledge Base Entries ({knowledgeEntries.length})</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <BookOpen className="w-5 h-5 text-blue-400" />
+                <h2 className="font-semibold text-sm">Active Knowledge Base Entries ({knowledgeEntries.length})</h2>
+              </div>
+              <span className="text-xs text-slate-400">Click edit icon to load content into editor</span>
             </div>
 
-            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-96 overflow-y-auto pr-1">
               {knowledgeEntries.map(entry => (
-                <div key={entry.id} className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs relative group">
+                <div 
+                  key={entry.id} 
+                  className={`p-4 rounded-xl border text-xs relative group transition-all ${
+                    editingId === entry.id
+                      ? 'bg-blue-500/10 border-blue-500/50 shadow-lg shadow-blue-500/5'
+                      : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">
                       {entry.course_name}
                     </span>
-                    <button
-                      onClick={() => deleteKnowledge(entry.id)}
-                      className="text-slate-500 hover:text-red-400 transition-colors p-1"
-                      title="Delete Entry"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => startEditKnowledge(entry)}
+                        className="text-slate-400 hover:text-blue-400 transition-colors p-1.5 rounded-lg hover:bg-slate-900"
+                        title="Edit Entry"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => deleteKnowledge(entry.id)}
+                        className="text-slate-400 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-slate-900"
+                        title="Delete Entry"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-slate-300 whitespace-pre-wrap leading-relaxed">{entry.content}</p>
+                  <p className="text-slate-300 whitespace-pre-wrap leading-relaxed max-h-32 overflow-hidden text-ellipsis">{entry.content}</p>
                 </div>
               ))}
             </div>
           </div>
-
         </div>
 
       </div>
