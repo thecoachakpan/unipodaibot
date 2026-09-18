@@ -23,6 +23,8 @@ import {
 import { uploadToGoogleDrive } from './googleDrive.js';
 import { startReminderScheduler, createScheduledReminder } from './reminderScheduler.js';
 
+import qrcode from 'qrcode-terminal';
+
 dotenv.config();
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
@@ -45,7 +47,20 @@ let runtimeConfig = { is_active: true, chat_scope: 'both' };
 const userCooldowns = new Map();
 
 /**
- * Dynamically builds system instruction from Supabase knowledge base.
+ * Converts standard Markdown (e.g. **bold**, ### headers) to WhatsApp Markdown (*bold*).
+ */
+function formatWhatsAppMarkdown(text) {
+  if (!text) return '';
+  return text
+    .replace(/\*\*(.*?)\*\*/gs, '*$1*') // Convert multiline **bold** to *bold*
+    .replace(/\*\*/g, '*')              // Clean up any remaining double asterisks
+    .replace(/^### (.*?)$/gm, '*$1*')   // Convert ### header to *header*
+    .replace(/^## (.*?)$/gm, '*$1*')    // Convert ## header to *header*
+    .replace(/^# (.*?)$/gm, '*$1*');    // Convert # header to *header*
+}
+
+/**
+ * Dynamically builds system instruction from Supabase knowledge base with live multi-timezone timestamps.
  */
 async function getDynamicSystemInstruction() {
   const { data: entries } = await supabase
@@ -57,11 +72,28 @@ async function getDynamicSystemInstruction() {
     ? entries.map(e => `### [Category: ${e.course_name}]\n${e.content}${e.link_url ? `\nLink: ${e.link_url}` : ''}`).join('\n\n---\n\n')
     : 'No active guidelines registered.';
 
-  const currentIsoDate = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  // Calculate live cohort timezones
+  const catTime = new Date(now.getTime() + 2 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' CAT (UTC+2)';
+  const watTime = new Date(now.getTime() + 1 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' WAT (UTC+1)';
+  const eatTime = new Date(now.getTime() + 3 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' EAT (UTC+3)';
+  const gmtTime = now.toISOString().replace('T', ' ').substring(0, 19) + ' GMT/UTC';
 
   return `
 You are PodPal BOT, the official AI Assistant for the UniPods METI AI Innovation Cohort.
-Current System Date: ${currentIsoDate}
+
+CURRENT LIVE SYSTEM TIMESTAMP (RIGHT NOW):
+- ISO Timestamp: ${nowIso}
+- CAT (Central Africa Time / Rwanda): ${catTime}
+- WAT (West Africa Time / Nigeria): ${watTime}
+- EAT (East Africa Time / Ethiopia): ${eatTime}
+- GMT / UTC: ${gmtTime}
+
+CRITICAL DEADLINE COMPARISON INSTRUCTIONS:
+- Compare the current LIVE timestamp against event dates before answering:
+- UN General Assembly Demo Video Deadline: Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT / 1:00 PM WAT).
+- If current LIVE time is past 2:00 PM CAT (12:00 PM GMT) on Friday, 18 Sept 2026, YOU MUST explicitly inform the user that the deadline HAS PASSED today at 2:00 PM CAT. Never say the UN GA deadline is close or approaching if the current time is after 2:00 PM CAT. Direct users with late submission questions to unipods.regional@undp.org.
 
 SUPPORTED TRACKS:
 1. MIT Universal AI Track
@@ -76,7 +108,7 @@ STRICT CONSTRAINTS & BEHAVIOR:
 2. Dynamic Per-Turn Language Switching: Automatically detect the language of the inbound prompt (English, French, Arabic, Amharic, etc.) on EACH turn and respond fluently in that exact same language. If a user switches languages mid-conversation, switch seamlessly with them!
 3. Proactive Screenshot Request: When a user asks about a technical error, login issue, or platform bug on MIT, Wadhwani, or Ethiopia AI portals that lacks error codes or specific context, proactively prompt: "To give you exact, tailored step-by-step guidance, could you please reply with a screenshot of the error or screen you are seeing?"
 4. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
-5. WhatsApp Markdown: Use *single asterisks* for bold. Do NOT use double asterisks (**).
+5. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
 6. Timezones: Always format call schedules and deadlines with explicit cohort timezones: CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
 7. Focus Shield: Politely decline off-topic requests (e.g., cat poems, general non-program homework) stating your specific setup as the METI AI Cohort helper.
 8. Unverified Facts: If an answer cannot be verified, inform the user in their language:
@@ -122,12 +154,17 @@ I’m **PodPal BOT**, your 24/7 cohort companion! I'm here to support your journ
 *What can I help you build or resolve today?* 😊`;
 }
 
+let realtimeInitialized = false;
+
 /**
  * Realtime configuration listener for master kill-switch & scope selector.
  */
 async function setupConfigRealtime() {
   const { data } = await supabase.from('bot_config').select('is_active, chat_scope').eq('id', 1).single();
   if (data) runtimeConfig = data;
+
+  if (realtimeInitialized) return;
+  realtimeInitialized = true;
 
   supabase
     .channel('bot_runtime_sync')
@@ -147,13 +184,20 @@ async function startBot() {
 
   const sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
   });
 
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
+
+    if (qr) {
+      console.log('\n======================================================');
+      console.log('📱 SCAN THIS QR CODE WITH YOUR WHATSAPP BOT PHONE');
+      console.log('======================================================\n');
+      qrcode.generate(qr, { small: true });
+    }
+
     if (connection === 'close') {
       const reconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
       if (reconnect) startBot();
@@ -386,7 +430,7 @@ async function startBot() {
       });
 
       let replyText = response.text || 'Unable to generate response.';
-      replyText = replyText.replace(/\\*\\*(.*?)\\*\\*/g, '*$1*'); // Convert markdown for WhatsApp
+      replyText = formatWhatsAppMarkdown(replyText);
 
       // ----------------------------------------------------
       // PIPELINE 4: SMART GROUP-TO-DM ROUTING EVALUATION
