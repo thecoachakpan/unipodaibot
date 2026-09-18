@@ -172,6 +172,35 @@ function formatWhatsAppMarkdown(text) {
 }
 
 /**
+ * Executes Gemini generateContent with automatic retry and model fallback for 503 high-demand spikes.
+ */
+async function callGeminiWithRetry(contentsPayload, systemInstruction) {
+  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  let lastError = null;
+
+  for (const modelName of modelsToTry) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: contentsPayload,
+          config: {
+            systemInstruction,
+            temperature: 0.2,
+          }
+        });
+        if (response?.text) return response.text;
+      } catch (err) {
+        lastError = err;
+        console.warn(`[Gemini Retry] Model ${modelName} (attempt ${attempt}) warning:`, err?.message || err);
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Dynamically builds system instruction from Supabase knowledge base with live multi-timezone timestamps.
  */
 async function getDynamicSystemInstruction() {
@@ -536,18 +565,9 @@ async function startBot() {
         contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: cleanPrompt }] }];
       }
 
-      // Gemini 3.1 Flash-Lite Call
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: contentsPayload,
-        config: {
-          systemInstruction,
-          temperature: 0.2,
-        }
-      });
-
-      let replyText = response.text || 'Unable to generate response.';
-      replyText = formatWhatsAppMarkdown(replyText);
+      // Gemini Call with automatic 503 retry & fallback models
+      let replyText = await callGeminiWithRetry(contentsPayload, systemInstruction);
+      replyText = formatWhatsAppMarkdown(replyText || 'Unable to generate response.');
 
       // ----------------------------------------------------
       // PIPELINE 4: SMART GROUP-TO-DM ROUTING EVALUATION
