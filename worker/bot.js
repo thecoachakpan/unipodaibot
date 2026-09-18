@@ -594,16 +594,15 @@ async function startBot() {
       }
     }
 
-    // First-Time DM Welcome Message Trigger
-    const isGreeting = ['hi', 'hello', 'bonjour', 'salut', 'start', 'menu', 'hey'].includes(cleanPrompt.toLowerCase());
-    const hasHistory = hasActiveDMSession(senderJid);
+    // First-Time DM Welcome Message Trigger (Only triggered on explicit greetings, skipping for actual program questions)
+    const isGreeting = ['hi', 'hello', 'bonjour', 'salut', 'start', 'menu', 'hey'].includes(cleanPrompt.toLowerCase().trim());
 
-    if (!isGroup && (isGreeting || !hasHistory) && !isAudio && !isImage) {
-      const isFrench = ['bonjour', 'salut'].includes(cleanPrompt.toLowerCase());
+    if (!isGroup && isGreeting && !isAudio && !isImage) {
+      const isFrench = ['bonjour', 'salut'].includes(cleanPrompt.toLowerCase().trim());
       const welcome = getWelcomeMessage(isFrench);
       updateSessionHistory(senderJid, cleanPrompt, welcome);
       await sock.sendPresenceUpdate('composing', senderJid);
-      await new Promise(r => setTimeout(r, 2000 + Math.random() * 1000));
+      await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
       await sock.sendPresenceUpdate('paused', senderJid);
       await sock.sendMessage(senderJid, { text: welcome }, { quoted: msg });
       return;
