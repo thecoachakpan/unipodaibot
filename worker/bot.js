@@ -247,28 +247,29 @@ async function useSupabaseAuthState(supabaseClient) {
 }
 
 /**
- * Executes Gemini generateContent with automatic retry and model fallback for 503 high-demand spikes.
+ * Executes Gemini 3.1 Flash-Lite generateContent with silent automatic retries for transient 503 spikes.
  */
 async function callGeminiWithRetry(contentsPayload, systemInstruction) {
-  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  const modelName = 'gemini-3.1-flash-lite';
+  const maxAttempts = 4;
   let lastError = null;
 
-  for (const modelName of modelsToTry) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: contentsPayload,
-          config: {
-            systemInstruction,
-            temperature: 0.2,
-          }
-        });
-        if (response?.text) return response.text;
-      } catch (err) {
-        lastError = err;
-        console.warn(`[Gemini Retry] Model ${modelName} (attempt ${attempt}) warning:`, err?.message || err);
-        await new Promise(r => setTimeout(r, 1000));
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: contentsPayload,
+        config: {
+          systemInstruction,
+          temperature: 0.2,
+        }
+      });
+      if (response?.text) return response.text;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[Gemini Retry] ${modelName} attempt ${attempt}/${maxAttempts} failed:`, err?.message || err);
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, attempt * 1000));
       }
     }
   }
@@ -640,7 +641,7 @@ async function startBot() {
         contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: cleanPrompt }] }];
       }
 
-      // Gemini Call with automatic 503 retry & fallback models
+      // Gemini 3.1 Flash-Lite Call with automatic silent 503 retry
       let replyText = await callGeminiWithRetry(contentsPayload, systemInstruction);
       replyText = formatWhatsAppMarkdown(replyText || 'Unable to generate response.');
 
@@ -685,9 +686,9 @@ async function startBot() {
       await sock.sendMessage(senderJid, { text: replyText }, { quoted: msg });
 
     } catch (err) {
-      console.error('[Inference Error]:', err);
+      console.error('[Inference Error - Silent Retry Exceeded]:', err);
       await sock.sendPresenceUpdate('paused', senderJid);
-      await sock.sendMessage(senderJid, { text: '⚠️ Service error. Please try again shortly.' }, { quoted: msg });
+      // Silent catch - no error message displayed to users on WhatsApp as requested
     }
   });
 }
