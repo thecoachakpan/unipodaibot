@@ -25,7 +25,7 @@ import {
   stopCleanupTimer
 } from './sessionManager.js';
 import { uploadToGoogleDrive } from './googleDrive.js';
-import { startReminderScheduler, createScheduledReminder } from './reminderScheduler.js';
+import { startReminderScheduler, stopReminderScheduler, createScheduledReminder } from './reminderScheduler.js';
 
 import WebSocket from 'ws';
 import qrcode from 'qrcode-terminal';
@@ -454,9 +454,10 @@ CURRENT LIVE SYSTEM TIMESTAMP (RIGHT NOW):
 - GMT / UTC: ${gmtTime}
 
 CRITICAL DEADLINE COMPARISON INSTRUCTIONS:
-- Compare the current LIVE timestamp against event dates before answering:
+- ONLY discuss or evaluate deadlines when the user explicitly asks about deadlines, schedules, submission dates, or upcoming milestones.
+- DO NOT append unsolicited deadline notices, reminders, or countdowns to answers that are unrelated to deadlines (e.g., login issues, track FAQs).
 - UN General Assembly Demo Video Deadline: Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT / 1:00 PM WAT).
-- If current LIVE time is past 2:00 PM CAT (12:00 PM GMT) on Friday, 18 Sept 2026, YOU MUST explicitly inform the user that the deadline HAS PASSED today at 2:00 PM CAT. Never say the UN GA deadline is close or approaching if the current time is after 2:00 PM CAT. Direct users with late submission questions to unipods.regional@undp.org.
+- If current LIVE time is past 2:00 PM CAT (12:00 PM GMT) on Friday, 18 Sept 2026 AND the user specifically asks about the UN GA deadline, inform them that the deadline HAS PASSED. Direct users with late submission questions to unipods.regional@undp.org.
 
 SUPPORTED TRACKS:
 1. MIT Universal AI Track
@@ -559,8 +560,21 @@ async function startBot() {
 
     if (connection === 'close') {
       isConnectedToWA = false;
-      const reconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      if (reconnect) startBot();
+      stopReminderScheduler();
+
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+      const isReplaced = statusCode === DisconnectReason.connectionReplaced;
+
+      if (isReplaced) {
+        console.warn('⚠️ [WhatsApp Worker]: Connection replaced by another active session/instance (Conflict). Waiting 10s before reconnecting to prevent session thrashing...');
+        setTimeout(() => startBot(), 10000);
+      } else if (!isLoggedOut) {
+        console.log(`🔄 [WhatsApp Worker]: Connection closed (${statusCode || 'Unknown'}). Reconnecting in 3s...`);
+        setTimeout(() => startBot(), 3000);
+      } else {
+        console.error('❌ [WhatsApp Worker]: Logged out from WhatsApp. Please re-scan QR code.');
+      }
     } else if (connection === 'open') {
       isConnectedToWA = true;
       latestQrString = null;
@@ -651,11 +665,15 @@ async function startBot() {
     // Voice note group guardrail
     if (isGroup && isAudio) return;
 
-    // Check quote-reply to PodPal BOT in groups
-    const isQuotedBotReply = isGroup && contextInfo?.participant?.includes(sock.user?.id?.split(':')[0]);
+    // Native WhatsApp Mention & Quote-Reply Checking in Groups
+    const botJidUser = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0];
+    const mentionedJids = contextInfo?.mentionedJid || [];
+    const isBotMentionedNative = mentionedJids.some(jid => jid.includes(botJidUser));
+
+    const isQuotedBotReply = isGroup && contextInfo?.participant?.includes(botJidUser);
     const mentionedAdmin = FACILITATOR_MAP.find(a => cleanLower.includes(a.name));
     const mentionsAdmin = !!mentionedAdmin;
-    const isTagged = cleanLower.includes('@bot') || cleanLower.includes('!ask');
+    const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('podpal');
 
     const isDeadlineQuery = cleanLower.includes('deadline') || cleanLower.includes('deadlines') || cleanLower.includes('schedule') || cleanLower.includes('when is') || cleanLower.includes('milestone');
     const isLinkQuery = cleanLower.includes('link') || cleanLower.includes('resource') || cleanLower.includes('portal') || cleanLower.includes('drive');
@@ -864,5 +882,14 @@ function shutdown() {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ [Uncaught Process Error]:', err?.message || err);
+  if (err?.stack) console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ [Unhandled Promise Rejection]:', reason);
+});
 
 startBot();

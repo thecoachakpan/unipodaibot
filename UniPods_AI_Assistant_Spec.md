@@ -44,7 +44,11 @@ An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** desig
 │  - In-memory session manager with 10m TTL sweeper           │
 │  - Anti-Ban safeguards (Burst rate-limiter, jitter)         │
 │  - Google Drive & Link Auto-Ingestion Pipeline              │
-│  - Model Engine: Google Gemini 3.1 Flash-Lite               │
+│  - 3-Tier AI Fallback Pipeline:                             │
+│    1. Primary: Groq API (openai/gpt-oss-120b)              │
+│    2. 1st Fallback: Gemini API (gemini-3.5-flash-lite)      │
+│    3. 2nd Fallback: Gemini API (gemini-3.1-flash-lite)      │
+│  - Render Zero-Sleep Uptime: HTTP /health & 9m Self-Ping    │
 └──────────────────────────────┘
 ```
 
@@ -70,9 +74,14 @@ Running automated bots via Baileys connects as an emulated WhatsApp Web multi-de
 
 ---
 
-## 3. Core AI Engine & Multimodal Capabilities: Gemini 3.1 Flash-Lite
+## 3. Core AI Engine & Multimodal Capabilities: 3-Tier Fallback Pipeline
 
-Using **`gemini-3.1-flash-lite`** via Google AI Studio (`@google/genai` SDK):
+**PodPal BOT** operates using a highly resilient **3-Tier AI Fallback Engine**:
+1. **Primary Model — Groq API (`openai/gpt-oss-120b`)**: High-speed inference via Groq's API (`GROQ_API_KEY`).
+2. **1st Fallback Model — Google GenAI (`gemini-3.5-flash-lite`)**: Activated automatically if Groq is missing, rate-limited, or unavailable (`GEMINI_API_KEY`).
+3. **2nd Fallback Model — Google GenAI (`gemini-3.1-flash-lite`)**: Activated if `gemini-3.5-flash-lite` experiences a transient outage or 503 error.
+
+**Multimodal & Intelligence Features**:
 - **Dynamic Per-Turn Language Detection & Mid-Chat Switching**: Automatically detects the language of every prompt (English, French, Arabic, Amharic, Swahili, etc.) on each turn. If a user switches from English to French mid-conversation, **PodPal BOT** seamlessly switches to French!
 - **Multimodal Audio Engine**: Ingests raw decrypted WhatsApp voice notes (`audio/ogg; codecs=opus`) natively in RAM (<90s limit).
 - **Multimodal Computer Vision Engine**: Ingests screenshot image attachments (`image/jpeg`, `image/png`, `image/webp`) in RAM to visually inspect error codes, login failures, or UI bugs on course platforms (MIT, Wadhwani, Ethiopia AI).
