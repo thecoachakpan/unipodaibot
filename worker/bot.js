@@ -10,7 +10,9 @@ import QRCode from 'qrcode';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
-  downloadMediaMessage
+  downloadMediaMessage,
+  initAuthCreds,
+  BufferJSON
 } from '@whiskeysockets/baileys';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
@@ -172,6 +174,79 @@ function formatWhatsAppMarkdown(text) {
 }
 
 /**
+ * Zero-cost persistent Baileys authentication state stored in Supabase database (whatsapp_auth table).
+ * Ensures WhatsApp sessions survive container restarts and redeployments without re-scanning QR code!
+ */
+async function useSupabaseAuthState(supabaseClient) {
+  const { data: credsRow } = await supabaseClient
+    .from('whatsapp_auth')
+    .select('value')
+    .eq('key', 'creds')
+    .single();
+
+  const creds = credsRow?.value
+    ? JSON.parse(JSON.stringify(credsRow.value), BufferJSON.reviver)
+    : initAuthCreds();
+
+  return {
+    state: {
+      creds,
+      keys: {
+        get: async (type, ids) => {
+          const data = {};
+          const keysToFetch = ids.map(id => `${type}-${id}`);
+          const { data: rows } = await supabaseClient
+            .from('whatsapp_auth')
+            .select('key, value')
+            .in('key', keysToFetch);
+
+          if (rows) {
+            for (const row of rows) {
+              const value = JSON.parse(JSON.stringify(row.value), BufferJSON.reviver);
+              const id = row.key.replace(`${type}-`, '');
+              data[id] = value;
+            }
+          }
+          return data;
+        },
+        set: async (data) => {
+          const upserts = [];
+          const deletes = [];
+          for (const category in data) {
+            for (const id in data[category]) {
+              const value = data[category][id];
+              const key = `${category}-${id}`;
+              if (value) {
+                upserts.push({
+                  key,
+                  value: JSON.parse(JSON.stringify(value, BufferJSON.replacer)),
+                  updated_at: new Date().toISOString()
+                });
+              } else {
+                deletes.push(key);
+              }
+            }
+          }
+          if (upserts.length > 0) {
+            await supabaseClient.from('whatsapp_auth').upsert(upserts);
+          }
+          if (deletes.length > 0) {
+            await supabaseClient.from('whatsapp_auth').delete().in('key', deletes);
+          }
+        }
+      }
+    },
+    saveCreds: async () => {
+      await supabaseClient.from('whatsapp_auth').upsert({
+        key: 'creds',
+        value: JSON.parse(JSON.stringify(creds, BufferJSON.replacer)),
+        updated_at: new Date().toISOString()
+      });
+    }
+  };
+}
+
+/**
  * Executes Gemini generateContent with automatic retry and model fallback for 503 high-demand spikes.
  */
 async function callGeminiWithRetry(contentsPayload, systemInstruction) {
@@ -321,7 +396,7 @@ async function setupConfigRealtime() {
  */
 async function startBot() {
   await setupConfigRealtime();
-  const { state, saveCreds } = await useMultiFileAuthState('auth_session');
+  const { state, saveCreds } = await useSupabaseAuthState(supabase);
 
   const sock = makeWASocket({
     auth: state,
