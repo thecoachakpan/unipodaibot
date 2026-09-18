@@ -50,12 +50,18 @@ It operates with **zero cloud storage costs**, supports **multilingual voice not
 6. Copy the Folder ID from the URL (`drive.google.com/drive/folders/FOLDER_ID`).
 7. Fill `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, and `GOOGLE_DRIVE_FOLDER_ID` in your `.env`.
 
-### 2. Render 24/7 Background Worker Setup
+### 2. Render 24/7 Web Service & 100% Uptime (Zero-Sleep) Setup
 1. Sign up/Log in to [Render](https://render.com).
-2. Create a new **Background Worker** (or **Web Service**).
-3. Connect your repository containing `Dockerfile` / `render.yaml`.
+2. Create a new **Web Service** using your repository (`render.yaml` sets `type: web`).
+3. Connect your repository.
 4. Configure environment variables in the Render dashboard (`GEMINI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_*`).
-5. Deploy! Render will keep the container running 24/7. Pairing QR code will render in logs.
+5. **Set Built-in Self-Ping**: Set `RENDER_EXTERNAL_URL` in environment variables to your Render URL (e.g. `https://podpal-bot.onrender.com`). The bot will automatically self-ping `/health` every 9 minutes to prevent Render from sleeping!
+6. **Set Up Secondary Uptime Monitor (Recommended for 100% Guaranteed Uptime)**:
+   - Go to [UptimeRobot.com](https://uptimerobot.com) or [cron-job.org](https://cron-job.org) (both 100% free).
+   - Create an **HTTP Monitor**:
+     - **URL**: `https://<your-app-name>.onrender.com/health`
+     - **Monitoring Interval**: Every 5 or 10 minutes.
+   - This ensures continuous heartbeat pings keep your Render container active 24/7/365 with **Zero Sleep**!
 
 ---
 

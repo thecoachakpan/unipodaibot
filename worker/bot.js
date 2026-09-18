@@ -127,14 +127,46 @@ const server = http.createServer(async (req, res) => {
       res.end('Error generating QR code image');
     }
   } else {
-    // Health check endpoint for Render deployment port detector
+    // Health check & keep-alive endpoint for Render deployment
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', service: 'PodPal Worker', connected: isConnectedToWA }));
+    res.end(JSON.stringify({
+      status: 'ok',
+      service: 'PodPal Worker',
+      connected: isConnectedToWA,
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString()
+    }));
   }
 });
 
+/**
+ * Zero-Sleep Self-Ping Engine for Render Free Tier 100% Uptime
+ * Pings the application's external URL every 9 minutes to prevent Render from sleeping.
+ */
+function startSelfPing() {
+  const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.SELF_PING_URL || process.env.APP_URL;
+  if (!externalUrl) {
+    console.log('ℹ️ [Keep-Alive Engine]: RENDER_EXTERNAL_URL is not set yet. Will listen for incoming HTTP pings at /health.');
+    return;
+  }
+
+  const pingTarget = externalUrl.endsWith('/') ? `${externalUrl}health` : `${externalUrl}/health`;
+  console.log(`🚀 [Keep-Alive Engine]: Self-Ping initialized for 100% Uptime targeting: ${pingTarget}`);
+
+  // Ping every 9 minutes (540,000 ms) — Render free tier sleeps after 15 minutes of HTTP inactivity
+  setInterval(async () => {
+    try {
+      const res = await fetch(pingTarget);
+      console.log(`[Keep-Alive Heartbeat] 🟢 Pinged ${pingTarget} — HTTP ${res.status}`);
+    } catch (err) {
+      console.warn(`[Keep-Alive Heartbeat] ⚠️ Self-ping failed: ${err?.message || err}`);
+    }
+  }, 9 * 60 * 1000);
+}
+
 server.listen(port, () => {
   console.log(`✅ HTTP Health & Web QR Server running on port ${port}`);
+  startSelfPing();
 });
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });

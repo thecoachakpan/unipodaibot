@@ -1,9 +1,10 @@
 services:
-  - type: worker
+  - type: web
     name: podpal-whatsapp-worker
     runtime: node
     buildCommand: npm install
     startCommand: npm run worker
+    healthCheckPath: /health
     envVars:
       - key: GEMINI_API_KEY
         sync: false
@@ -17,3 +18,6 @@ services:
         sync: false
       - key: GOOGLE_DRIVE_FOLDER_ID
         sync: false
+      - key: RENDER_EXTERNAL_URL
+        sync: false
+

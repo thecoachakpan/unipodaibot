@@ -32,7 +32,7 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       // 1. Config
-      const { data: cfg } = await supabase.from('bot_config').select('is_active, chat_scope').eq('id', 1).single();
+      const { data: cfg } = await supabase.from('bot_config').select('is_active, chat_scope').eq('id', 1).maybeSingle();
       if (cfg) setConfig(cfg);
 
       // 2. Knowledge Entries
