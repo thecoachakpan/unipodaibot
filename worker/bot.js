@@ -23,6 +23,7 @@ import {
 import { uploadToGoogleDrive } from './googleDrive.js';
 import { startReminderScheduler, createScheduledReminder } from './reminderScheduler.js';
 
+import WebSocket from 'ws';
 import qrcode from 'qrcode-terminal';
 
 dotenv.config();
@@ -30,7 +31,11 @@ dotenv.config();
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 const supabase = createClient(
   process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  {
+    auth: { persistSession: false },
+    realtime: { transport: WebSocket }
+  }
 );
 
 // Verified cohort facilitator WhatsApp JIDs (Diane, Gift, Jeovaire, Munira, Charles Bolton)
