@@ -70,7 +70,33 @@ async function checkAndSendReminders() {
     for (const item of reminders) {
       const scheduledTime = new Date(item.scheduled_for).getTime();
       const diffMinutes = Math.round((scheduledTime - now) / (60 * 1000));
+      const targetJid = item.group_jid === 'all' ? item.creator_jid : item.group_jid;
 
+      // Handle Native WhatsApp Polls
+      if (item.reminder_type === 'poll' && item.poll_options?.length > 0) {
+        if (scheduledTime <= now) {
+          await socketRef.sendMessage(targetJid, {
+            poll: {
+              name: item.title,
+              values: item.poll_options,
+              selectableCount: 1
+            }
+          });
+          await supabase.from('scheduled_reminders').update({ status: 'completed' }).eq('id', item.id);
+          continue;
+        }
+      }
+
+      // Handle Instant / Daily Proactive Announcements
+      if ((item.reminder_type === 'announcement' || item.reminder_type === 'daily_update') && scheduledTime <= now) {
+        const updateHeader = item.reminder_type === 'daily_update' ? '📢 *DAILY COHORT UPDATE*' : '📢 *ANNOUNCEMENT*';
+        const msgText = `${updateHeader}\n\n${item.title}`;
+        await socketRef.sendMessage(targetJid, { text: msgText });
+        await supabase.from('scheduled_reminders').update({ status: 'completed' }).eq('id', item.id);
+        continue;
+      }
+
+      // Handle Timed Meeting / Event Reminders
       const offsets = item.offsets || [30, 5];
       const sentOffsets = item.sent_offsets || [];
 
@@ -79,27 +105,17 @@ async function checkAndSendReminders() {
         if (diffMinutes <= offset && diffMinutes > offset - 2 && !sentOffsets.includes(offset)) {
           const formattedOffset = offset >= 60 ? `${Math.round(offset / 60)} hour(s)` : `${offset} minute(s)`;
           
-          const reminderMsg = `🔔 *REMINDER: Upcoming Cohort Event*\n\n📌 *${item.title}*\n⏰ Starting in *${formattedOffset}*!\n\n*Timezones*: ${new Date(scheduledTime).toLocaleTimeString()} (CAT / WAT / EAT)\n\nType !links for meeting URL or direct platform access!`;
+          const reminderMsg = `🔔 *REMINDER: Upcoming Cohort Event*\n\n📌 *${item.title}*\n⏰ Starting in *${formattedOffset}*!\n\n*Timezones*: ${new Date(scheduledTime).toLocaleTimeString()} (CAT / WAT / EAT)`;
 
-          // Post to group or broadcast
-          const targetJid = item.group_jid === 'all' ? item.creator_jid : item.group_jid;
           await socketRef.sendMessage(targetJid, { text: reminderMsg });
-
           sentOffsets.push(offset);
-
-          await supabase
-            .from('scheduled_reminders')
-            .update({ sent_offsets: sentOffsets })
-            .eq('id', item.id);
+          await supabase.from('scheduled_reminders').update({ sent_offsets: sentOffsets }).eq('id', item.id);
         }
       }
 
       // Mark as completed if all offsets sent or event passed
       if (sentOffsets.length >= offsets.length || diffMinutes < -30) {
-        await supabase
-          .from('scheduled_reminders')
-          .update({ status: 'completed' })
-          .eq('id', item.id);
+        await supabase.from('scheduled_reminders').update({ status: 'completed' }).eq('id', item.id);
       }
     }
   } catch (err) {
