@@ -282,33 +282,144 @@ async function useSupabaseAuthState(supabaseClient) {
 }
 
 /**
- * Executes Gemini 3.1 Flash-Lite generateContent with silent automatic retries for transient 503 spikes.
+ * Helper to invoke Groq API models (OpenAI Chat Completions format).
  */
-async function callGeminiWithRetry(contentsPayload, systemInstruction) {
-  const modelName = 'gemini-3.1-flash-lite';
-  const maxAttempts = 4;
-  let lastError = null;
+async function callGroqModel(modelName, messagesPayload) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY environment variable is missing');
+  }
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: contentsPayload,
-        config: {
-          systemInstruction,
-          temperature: 0.2,
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: modelName,
+      messages: messagesPayload,
+      temperature: 0.2
+    })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Groq API returned HTTP ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) {
+    throw new Error('Groq API returned empty message content');
+  }
+
+  return text;
+}
+
+/**
+ * Converts internal payload or chat history into OpenAI message objects format for Groq.
+ */
+function convertToOpenAiMessages(contentsPayload, systemInstruction) {
+  const messages = [{ role: 'system', content: systemInstruction }];
+
+  if (typeof contentsPayload === 'string') {
+    messages.push({ role: 'user', content: contentsPayload });
+  } else if (Array.isArray(contentsPayload)) {
+    for (const turn of contentsPayload) {
+      if (typeof turn === 'string') {
+        messages.push({ role: 'user', content: turn });
+      } else if (turn && typeof turn === 'object') {
+        const role = (turn.role === 'model' || turn.role === 'assistant') ? 'assistant' : 'user';
+        let textContent = '';
+        if (typeof turn.parts === 'string') {
+          textContent = turn.parts;
+        } else if (Array.isArray(turn.parts)) {
+          for (const part of turn.parts) {
+            if (part.text) {
+              textContent += (textContent ? '\n' : '') + part.text;
+            }
+          }
+        } else if (turn.content) {
+          textContent = turn.content;
         }
-      });
-      if (response?.text) return response.text;
-    } catch (err) {
-      lastError = err;
-      console.warn(`[Gemini Retry] ${modelName} attempt ${attempt}/${maxAttempts} failed:`, err?.message || err);
-      if (attempt < maxAttempts) {
-        await new Promise(r => setTimeout(r, attempt * 1000));
+
+        if (textContent) {
+          messages.push({ role, content: textContent });
+        }
       }
     }
   }
-  throw lastError;
+
+  return messages;
+}
+
+/**
+ * Executes AI inference using a 3-tier fallback chain:
+ * 1. Primary: Groq API -> openai/gpt-oss-120b
+ * 2. 1st Fallback: Gemini API -> gemini-3.5-flash-lite
+ * 3. 2nd Fallback: Gemini API -> gemini-3.1-flash-lite
+ */
+async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
+  const PRIMARY_MODEL = 'openai/gpt-oss-120b';
+  const FALLBACK_1_MODEL = 'gemini-3.5-flash-lite';
+  const FALLBACK_2_MODEL = 'gemini-3.1-flash-lite';
+
+  // --- Tier 1: Primary Model (openai/gpt-oss-120b via Groq API) ---
+  if (process.env.GROQ_API_KEY) {
+    try {
+      console.log(`[AI Pipeline] Calling Primary Model: ${PRIMARY_MODEL} (Groq API)...`);
+      const messages = convertToOpenAiMessages(contentsPayload, systemInstruction);
+      const reply = await callGroqModel(PRIMARY_MODEL, messages);
+      console.log(`[AI Pipeline] 🟢 Primary Model (${PRIMARY_MODEL}) succeeded!`);
+      return reply;
+    } catch (err) {
+      console.warn(`[AI Pipeline] ⚠️ Primary Model (${PRIMARY_MODEL}) failed: ${err?.message || err}. Transitioning to 1st fallback...`);
+    }
+  } else {
+    console.warn(`[AI Pipeline] GROQ_API_KEY not set. Skipping primary model (${PRIMARY_MODEL}).`);
+  }
+
+  // --- Tier 2: 1st Fallback Model (gemini-3.5-flash-lite via Gemini API) ---
+  try {
+    console.log(`[AI Pipeline] Calling 1st Fallback Model: ${FALLBACK_1_MODEL} (Gemini API)...`);
+    const response = await ai.models.generateContent({
+      model: FALLBACK_1_MODEL,
+      contents: contentsPayload,
+      config: {
+        systemInstruction,
+        temperature: 0.2,
+      }
+    });
+    if (response?.text) {
+      console.log(`[AI Pipeline] 🟢 1st Fallback Model (${FALLBACK_1_MODEL}) succeeded!`);
+      return response.text;
+    }
+  } catch (err) {
+    console.warn(`[AI Pipeline] ⚠️ 1st Fallback Model (${FALLBACK_1_MODEL}) failed: ${err?.message || err}. Transitioning to 2nd fallback...`);
+  }
+
+  // --- Tier 3: 2nd Fallback Model (gemini-3.1-flash-lite via Gemini API) ---
+  try {
+    console.log(`[AI Pipeline] Calling 2nd Fallback Model: ${FALLBACK_2_MODEL} (Gemini API)...`);
+    const response = await ai.models.generateContent({
+      model: FALLBACK_2_MODEL,
+      contents: contentsPayload,
+      config: {
+        systemInstruction,
+        temperature: 0.2,
+      }
+    });
+    if (response?.text) {
+      console.log(`[AI Pipeline] 🟢 2nd Fallback Model (${FALLBACK_2_MODEL}) succeeded!`);
+      return response.text;
+    }
+  } catch (err) {
+    console.error(`[AI Pipeline] ❌ 2nd Fallback Model (${FALLBACK_2_MODEL}) failed: ${err?.message || err}`);
+    throw err;
+  }
+
+  throw new Error('All AI models in the fallback chain failed.');
 }
 
 /**
@@ -693,8 +804,8 @@ async function startBot() {
         contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: cleanPrompt }] }];
       }
 
-      // Gemini 3.1 Flash-Lite Call with automatic silent 503 retry
-      let replyText = await callGeminiWithRetry(contentsPayload, systemInstruction);
+      // 3-Tier AI Pipeline Execution: Primary (Groq openai/gpt-oss-120b) -> 1st Fallback (gemini-3.5-flash-lite) -> 2nd Fallback (gemini-3.1-flash-lite)
+      let replyText = await callAiWithFallbackChain(contentsPayload, systemInstruction);
       replyText = formatWhatsAppMarkdown(replyText || 'Unable to generate response.');
 
       // ----------------------------------------------------
