@@ -665,23 +665,33 @@ async function startBot() {
     // Voice note group guardrail
     if (isGroup && isAudio) return;
 
-    // Native WhatsApp Mention & Quote-Reply Checking in Groups
-    const botJidUser = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0];
-    const mentionedJids = contextInfo?.mentionedJid || [];
-    const isBotMentionedNative = mentionedJids.some(jid => jid.includes(botJidUser));
+    // Robust Bot JID and Number Extraction for WhatsApp Groups
+    const rawBotId = sock.user?.id || '';
+    const botNumber = rawBotId.replace(/[^0-9]/g, '');
+    const quotedParticipantNumber = (contextInfo?.participant || '').replace(/[^0-9]/g, '');
+    
+    // Check if user is quote-replying to a message sent by PodPal BOT in groups
+    const isQuotedBotReply = isGroup && (
+      (botNumber && quotedParticipantNumber && (quotedParticipantNumber.includes(botNumber) || botNumber.includes(quotedParticipantNumber))) ||
+      (botNumber && contextInfo?.participant?.includes(botNumber))
+    );
 
-    const isQuotedBotReply = isGroup && contextInfo?.participant?.includes(botJidUser);
+    const mentionedJids = contextInfo?.mentionedJid || [];
+    const isBotMentionedNative = mentionedJids.some(jid => jid.replace(/[^0-9]/g, '').includes(botNumber));
+
     const mentionedAdmin = FACILITATOR_MAP.find(a => cleanLower.includes(a.name));
     const mentionsAdmin = !!mentionedAdmin;
-    const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('podpal');
+    const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('podpal') || cleanLower.includes('bot');
 
-    const isDeadlineQuery = cleanLower.includes('deadline') || cleanLower.includes('deadlines') || cleanLower.includes('schedule') || cleanLower.includes('when is') || cleanLower.includes('milestone');
-    const isLinkQuery = cleanLower.includes('link') || cleanLower.includes('resource') || cleanLower.includes('portal') || cleanLower.includes('drive');
+    // Program-Related Inquiry Detector for Groups (Triggers on questions, track keywords, or portal queries)
+    const isQuestionOrInquiry = rawText.includes('?') || 
+                                /^(what|when|where|how|who|why|can|could|is|are|do|does|will|please|help|any)/i.test(cleanPrompt) ||
+                                /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate)/i.test(cleanPrompt);
 
-    // Group Chat Scope Filtering
+    // Group Chat Scope Filtering (Processes quote-replies, mentions, tags, or any program inquiries)
     if (isGroup) {
       if (runtimeConfig.chat_scope === 'private_only') return;
-      if (!isTagged && !mentionsAdmin && !isQuotedBotReply && !isDeadlineQuery && !isLinkQuery) return;
+      if (!isTagged && !mentionsAdmin && !isQuotedBotReply && !isQuestionOrInquiry) return;
     }
 
     // Per-user cooldown jitter (15s)
