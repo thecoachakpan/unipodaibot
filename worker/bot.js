@@ -282,6 +282,42 @@ async function useSupabaseAuthState(supabaseClient) {
 }
 
 /**
+ * Helper to invoke OpenAI API models (OpenAI Chat Completions format).
+ */
+async function callOpenAiModel(modelName, messagesPayload) {
+  const apiKey = process.env.OPENAI_API_KEY || process.env.OpenAI_API_Key;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY / OpenAI_API_Key environment variable is missing');
+  }
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: modelName,
+      messages: messagesPayload,
+      temperature: 0.2
+    })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`OpenAI API returned HTTP ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) {
+    throw new Error('OpenAI API returned empty message content');
+  }
+
+  return text;
+}
+
+/**
  * Helper to invoke Groq API models (OpenAI Chat Completions format).
  */
 async function callGroqModel(modelName, messagesPayload) {
@@ -318,7 +354,7 @@ async function callGroqModel(modelName, messagesPayload) {
 }
 
 /**
- * Converts internal payload or chat history into OpenAI message objects format for Groq.
+ * Converts internal payload or chat history into OpenAI message objects format for Groq & OpenAI.
  */
 function convertToOpenAiMessages(contentsPayload, systemInstruction) {
   const messages = [{ role: 'system', content: systemInstruction }];
@@ -355,32 +391,60 @@ function convertToOpenAiMessages(contentsPayload, systemInstruction) {
 }
 
 /**
- * Executes AI inference using a 3-tier fallback chain:
- * 1. Primary: Groq API -> llama-3.3-70b-versatile (Meta Llama 3.3 70B Flagship Model)
- * 2. 1st Fallback: Gemini API -> gemini-3.5-flash-lite
- * 3. 2nd Fallback: Gemini API -> gemini-3.1-flash-lite
+ * Executes AI inference using a 4-tier fallback chain:
+ * 1. Primary: OpenAI API -> gpt-5.6-luna (or OPENAI_MODEL) with gpt-4o fallback
+ * 2. 1st Fallback: Groq API -> llama-3.3-70b-versatile
+ * 3. 2nd Fallback: Gemini API -> gemini-3.5-flash-lite
+ * 4. 3rd Fallback: Gemini API -> gemini-3.1-flash-lite
  */
 async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
-  const PRIMARY_MODEL = 'llama-3.3-70b-versatile';
+  const OPENAI_PRIMARY_MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
+  const GROQ_MODEL = 'llama-3.3-70b-versatile';
   const FALLBACK_1_MODEL = 'gemini-3.5-flash-lite';
   const FALLBACK_2_MODEL = 'gemini-3.1-flash-lite';
 
-  // --- Tier 1: Primary Model (llama-3.3-70b-versatile via Groq API) ---
-  if (process.env.GROQ_API_KEY) {
+  const openAiKey = process.env.OPENAI_API_KEY || process.env.OpenAI_API_Key;
+
+  // --- Tier 1: Primary Model (OpenAI API) ---
+  if (openAiKey) {
+    const messages = convertToOpenAiMessages(contentsPayload, systemInstruction);
     try {
-      console.log(`[AI Pipeline] Calling Primary Model: ${PRIMARY_MODEL} (Groq API)...`);
-      const messages = convertToOpenAiMessages(contentsPayload, systemInstruction);
-      const reply = await callGroqModel(PRIMARY_MODEL, messages);
-      console.log(`[AI Pipeline] 🟢 Primary Model (${PRIMARY_MODEL}) succeeded!`);
+      console.log(`[AI Pipeline] Calling Primary Model: ${OPENAI_PRIMARY_MODEL} (OpenAI API)...`);
+      const reply = await callOpenAiModel(OPENAI_PRIMARY_MODEL, messages);
+      console.log(`[AI Pipeline] 🟢 Primary Model (${OPENAI_PRIMARY_MODEL}) succeeded!`);
       return reply;
     } catch (err) {
-      console.warn(`[AI Pipeline] ⚠️ Primary Model (${PRIMARY_MODEL}) failed: ${err?.message || err}. Transitioning to 1st fallback...`);
+      console.warn(`[AI Pipeline] ⚠️ Primary Model (${OPENAI_PRIMARY_MODEL}) failed: ${err?.message || err}. Trying OpenAI fallback gpt-4o...`);
+      if (OPENAI_PRIMARY_MODEL !== 'gpt-4o' && OPENAI_PRIMARY_MODEL !== 'gpt-4o-mini') {
+        try {
+          const fallbackReply = await callOpenAiModel('gpt-4o', messages);
+          console.log(`[AI Pipeline] 🟢 OpenAI Fallback Model (gpt-4o) succeeded!`);
+          return fallbackReply;
+        } catch (fbErr) {
+          console.warn(`[AI Pipeline] ⚠️ OpenAI Fallback Model (gpt-4o) failed: ${fbErr?.message || fbErr}. Transitioning to Groq...`);
+        }
+      }
     }
   } else {
-    console.warn(`[AI Pipeline] GROQ_API_KEY not set. Skipping primary model (${PRIMARY_MODEL}).`);
+    console.warn('[AI Pipeline] OPENAI_API_KEY / OpenAI_API_Key not set. Skipping OpenAI tier.');
   }
 
-  // --- Tier 2: 1st Fallback Model (gemini-3.5-flash-lite via Gemini API) ---
+  // --- Tier 2: Groq Model (llama-3.3-70b-versatile) ---
+  if (process.env.GROQ_API_KEY) {
+    try {
+      console.log(`[AI Pipeline] Calling Groq Model: ${GROQ_MODEL}...`);
+      const messages = convertToOpenAiMessages(contentsPayload, systemInstruction);
+      const reply = await callGroqModel(GROQ_MODEL, messages);
+      console.log(`[AI Pipeline] 🟢 Groq Model (${GROQ_MODEL}) succeeded!`);
+      return reply;
+    } catch (err) {
+      console.warn(`[AI Pipeline] ⚠️ Groq Model (${GROQ_MODEL}) failed: ${err?.message || err}. Transitioning to 1st Gemini fallback...`);
+    }
+  } else {
+    console.warn('[AI Pipeline] GROQ_API_KEY not set. Skipping Groq model.');
+  }
+
+  // --- Tier 3: 1st Fallback Model (gemini-3.5-flash-lite via Gemini API) ---
   try {
     console.log(`[AI Pipeline] Calling 1st Fallback Model: ${FALLBACK_1_MODEL} (Gemini API)...`);
     const response = await ai.models.generateContent({
@@ -399,7 +463,7 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
     console.warn(`[AI Pipeline] ⚠️ 1st Fallback Model (${FALLBACK_1_MODEL}) failed: ${err?.message || err}. Transitioning to 2nd fallback...`);
   }
 
-  // --- Tier 3: 2nd Fallback Model (gemini-3.1-flash-lite via Gemini API) ---
+  // --- Tier 4: 2nd Fallback Model (gemini-3.1-flash-lite via Gemini API) ---
   try {
     console.log(`[AI Pipeline] Calling 2nd Fallback Model: ${FALLBACK_2_MODEL} (Gemini API)...`);
     const response = await ai.models.generateContent({
@@ -673,6 +737,9 @@ async function startBot() {
     // Voice note group guardrail
     if (isGroup && isAudio) return;
 
+    const cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').trim();
+    const wordCount = cleanPrompt.split(/\s+/).filter(Boolean).length;
+
     // Robust Bot JID and Number Extraction for WhatsApp Groups
     const rawBotId = sock.user?.id || '';
     const botNumber = rawBotId.replace(/[^0-9]/g, '');
@@ -707,9 +774,6 @@ async function startBot() {
     const lastUserTime = userCooldowns.get(senderParticipant) || 0;
     if (isGroup && now - lastUserTime < 15000) return;
     userCooldowns.set(senderParticipant, now);
-
-    const cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').trim();
-    const wordCount = cleanPrompt.split(/\s+/).filter(Boolean).length;
 
     // Vague Admin Mention Handler in Groups (Tags Admin & Asks Participant for Specific Details)
     if (isGroup && mentionedAdmin) {
@@ -794,7 +858,7 @@ async function startBot() {
       await sock.sendPresenceUpdate('composing', senderJid);
       await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1500));
 
-      const systemInstruction = await getDynamicSystemInstruction();
+      const systemInstruction = await getStaticSystemInstruction();
       let contentsPayload;
 
       // Vision (Screenshot) Processing
@@ -808,7 +872,7 @@ async function startBot() {
             role: 'user',
             parts: [
               { inlineData: { mimeType: mimeType, data: imageBuffer.toString('base64') } },
-              { text: `Analyze this screenshot sent by a cohort member. Identify error codes, UI elements, or platform issues on MIT, Wadhwani, or Ethiopia AI portals. Provide exact resolution steps based on grounded knowledge: ${userCaption}` }
+              { text: `Analyze this screenshot sent by a cohort member. Identify error codes, UI elements, or platform issues on MIT, Wadhwani, or Ethiopia AI portals. Provide exact resolution steps based on grounded knowledge: ${userCaption}\n\n${getLiveTimestampContext()}` }
             ]
           }
         ];
@@ -827,17 +891,17 @@ async function startBot() {
             role: 'user',
             parts: [
               { inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } },
-              { text: 'Listen to this voice note. Detect the language, transcribe, and answer accurately in that same language.' }
+              { text: `Listen to this voice note. Detect the language, transcribe, and answer accurately in that same language.\n\n${getLiveTimestampContext()}` }
             ]
           }
         ];
       }
       // Group Context Single-Turn vs DM Sliding Window
       else if (isGroup) {
-        contentsPayload = cleanPrompt;
+        contentsPayload = `${cleanPrompt}\n\n${getLiveTimestampContext()}`;
       } else {
         const pastTurns = getSessionHistory(senderJid);
-        contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: cleanPrompt }] }];
+        contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: `${cleanPrompt}\n\n${getLiveTimestampContext()}` }] }];
       }
 
       // 3-Tier AI Pipeline Execution: Primary (Groq openai/gpt-oss-120b) -> 1st Fallback (gemini-3.5-flash-lite) -> 2nd Fallback (gemini-3.1-flash-lite)
