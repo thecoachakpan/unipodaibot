@@ -486,6 +486,73 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
   throw new Error('All AI models in the fallback chain failed.');
 }
 
+// Sliding window message history buffer per chat (group or DM) for contextual follow-up checks & missed tag scanning
+const recentChatMessages = new Map();
+
+function bufferChatMessage(chatJid, senderParticipant, pushName, text, isBot = false) {
+  if (!text) return;
+  let list = recentChatMessages.get(chatJid) || [];
+  list.push({
+    participant: senderParticipant,
+    pushName: pushName || null,
+    text,
+    timestamp: Date.now(),
+    isBot
+  });
+  if (list.length > 30) list.shift();
+  recentChatMessages.set(chatJid, list);
+}
+
+/**
+ * Extracts a clean, verified WhatsApp PushName (Profile Name).
+ * Returns null if missing or composed ONLY of special characters/emojis.
+ */
+function getValidPushName(msg) {
+  const rawName = msg?.pushName || '';
+  if (!rawName || typeof rawName !== 'string') return null;
+  const hasLetters = /[a-zA-Z\u00C0-\u024F\u1E00-\u1EFF\u0600-\u06FF\u1200-\u137F]/.test(rawName);
+  if (!hasLetters) return null;
+  return rawName.trim();
+}
+
+/**
+ * Retrieves recent context from the same participant to capture follow-up questions.
+ */
+function getParticipantFollowupContext(chatJid, participantJid, currentText) {
+  const history = recentChatMessages.get(chatJid) || [];
+  const now = Date.now();
+  
+  const participantRecent = history.filter(m => 
+    m.participant === participantJid && 
+    !m.isBot && 
+    m.text !== currentText && 
+    (now - m.timestamp < 3 * 60 * 1000)
+  );
+
+  if (participantRecent.length === 0) return currentText;
+
+  const prevMsg = participantRecent[participantRecent.length - 1];
+  return `[Context from Participant's Preceding Message: "${prevMsg.text}"]\nCurrent Follow-up Message: "${currentText}"`;
+}
+
+/**
+ * When bot is tagged without a message (e.g. "@PodPal BOT"), scans recent unresponded participant messages in the chat.
+ */
+function findMissedUnrespondedQuestion(chatJid, participantJid) {
+  const history = recentChatMessages.get(chatJid) || [];
+  const now = Date.now();
+  
+  for (let i = history.length - 1; i >= 0; i--) {
+    const item = history[i];
+    if (!item.isBot && item.text && item.text.trim().length > 3 && (now - item.timestamp < 10 * 60 * 1000)) {
+      if (item.participant === participantJid || chatJid.endsWith('@g.us')) {
+        return item.text;
+      }
+    }
+  }
+  return null;
+}
+
 let cachedStaticSystemInstruction = null;
 let lastKbFetchTime = 0;
 
@@ -528,8 +595,10 @@ STRICT CONSTRAINTS & BEHAVIOR:
 6. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
 7. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
 8. Timezones: Always format call schedules and deadlines with explicit cohort timezones: CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
-9. Focus Shield & Off-Topic Filter: You are strictly the AI assistant for the UniPods METI AI Innovation Cohort. If a user prompt is completely UNRELATED to the METI AI program, cohort tracks, portals, schedules, assignments, deadlines, or technical platform issues (e.g. general trivia, random jokes, recipes, sports, weather, non-program coding homework), output EXACTLY: "[OFF_TOPIC]". Do NOT answer off-topic queries.
-10. Unverified Facts: If an answer cannot be verified, inform the user in their language:
+9. Focus Shield & Semantic Relevance: You are strictly the AI assistant for the UniPods METI AI Innovation Cohort. Only answer if the overall meaning of the user message is closely related to the METI AI program, cohort tracks, portals, schedules, assignments, deadlines, or platform support. If the prompt is completely UNRELATED (e.g. general trivia, recipes, sports, weather, non-program coding homework), output EXACTLY: "[OFF_TOPIC]". Do NOT answer off-topic queries.
+10. WhatsApp Profile Names & No Invented Names: Address participants using ONLY their verified WhatsApp profile name (PushName) provided in the prompt context. If PushName is missing, null, or contains only special characters/emojis, NEVER assign, guess, or invent a name (such as "Friend", "User", "Participant", "John"). In group chats, tag them using @phone or respond directly without inventing any name.
+11. Misinterpretations & Apologies Directive: Read every prompt carefully. If a user states that a previous answer was wrong, incorrect, or misinterpreted (e.g., "that's not what I asked", "you misunderstood", "no, I meant..."), ALWAYS begin your response with a sincere, polite apology (e.g., "I apologize for the misunderstanding earlier.") before providing the correct, grounded answer.
+12. Unverified Facts: If an answer cannot be verified, inform the user in their language:
    - English: "I don't have verified information on this yet. Please contact the team at unipods.regional@undp.org."
    - French: "Je n'ai pas encore d'informations vérifiées à ce sujet. Veuillez contacter l'équipe à unipods.regional@undp.org."
 
@@ -737,8 +806,13 @@ async function startBot() {
     // Voice note group guardrail
     if (isGroup && isAudio) return;
 
-    const cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').trim();
-    const wordCount = cleanPrompt.split(/\s+/).filter(Boolean).length;
+    const validPushName = getValidPushName(msg);
+    let cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').replace(/podpal/gi, '').replace(/bot/gi, '').trim();
+    
+    // Buffer incoming message into chat sliding window
+    if (rawText) {
+      bufferChatMessage(senderJid, senderParticipant, validPushName, rawText, false);
+    }
 
     // Robust Bot JID and Number Extraction for WhatsApp Groups
     const rawBotId = sock.user?.id || '';
@@ -757,6 +831,24 @@ async function startBot() {
     const mentionedAdmin = FACILITATOR_MAP.find(a => cleanLower.includes(a.name));
     const mentionsAdmin = !!mentionedAdmin;
     const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('podpal') || cleanLower.includes('bot');
+
+    // Standalone Tag Handler: If bot is tagged without prompt text, scan recent unresponded messages
+    if (isTagged && cleanPrompt.length === 0) {
+      const missedQ = findMissedUnrespondedQuestion(senderJid, senderParticipant);
+      if (missedQ) {
+        cleanPrompt = missedQ;
+      } else {
+        const greetName = validPushName ? validPushName : `@${senderParticipant.split('@')[0]}`;
+        await sock.sendPresenceUpdate('paused', senderJid);
+        await sock.sendMessage(senderJid, {
+          text: `Hi ${greetName}! You tagged me — how can I help you with your METI AI Cohort track or platform today? 😊`,
+          mentions: [senderParticipant]
+        }, { quoted: msg });
+        return;
+      }
+    }
+
+    const wordCount = cleanPrompt.split(/\s+/).filter(Boolean).length;
 
     // Program-Related Inquiry Detector for Groups (Triggers strictly on program keywords or portal queries)
     const isQuestionOrInquiry = /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project)/i.test(cleanPrompt);
@@ -857,6 +949,11 @@ async function startBot() {
       await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1500));
 
       const systemInstruction = await getStaticSystemInstruction();
+      
+      // Contextual follow-up check: Retrieve participant's recent message context
+      const promptWithFollowupContext = getParticipantFollowupContext(senderJid, senderParticipant, cleanPrompt);
+      const senderIdentityHeader = `[Sender Profile Name: ${validPushName || 'None (Use @tag or direct text)'} | Sender ID: ${senderParticipant.split('@')[0]}]`;
+      
       let contentsPayload;
 
       // Vision (Screenshot) Processing
@@ -870,7 +967,7 @@ async function startBot() {
             role: 'user',
             parts: [
               { inlineData: { mimeType: mimeType, data: imageBuffer.toString('base64') } },
-              { text: `Analyze this screenshot sent by a cohort member. Identify error codes, UI elements, or platform issues on MIT, Wadhwani, or Ethiopia AI portals. Provide exact resolution steps based on grounded knowledge: ${userCaption}\n\n${getLiveTimestampContext()}` }
+              { text: `${senderIdentityHeader}\nAnalyze this screenshot sent by a cohort member. Identify error codes, UI elements, or platform issues on MIT, Wadhwani, or Ethiopia AI portals. Provide exact resolution steps based on grounded knowledge: ${userCaption}\n\n${getLiveTimestampContext()}` }
             ]
           }
         ];
@@ -889,17 +986,17 @@ async function startBot() {
             role: 'user',
             parts: [
               { inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } },
-              { text: `Listen to this voice note. Detect the language, transcribe, and answer accurately in that same language.\n\n${getLiveTimestampContext()}` }
+              { text: `${senderIdentityHeader}\nListen to this voice note. Detect the language, transcribe, and answer accurately in that same language.\n\n${getLiveTimestampContext()}` }
             ]
           }
         ];
       }
       // Group Context Single-Turn vs DM Sliding Window
       else if (isGroup) {
-        contentsPayload = `${cleanPrompt}\n\n${getLiveTimestampContext()}`;
+        contentsPayload = `${senderIdentityHeader}\n${promptWithFollowupContext}\n\n${getLiveTimestampContext()}`;
       } else {
         const pastTurns = getSessionHistory(senderJid);
-        contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: `${cleanPrompt}\n\n${getLiveTimestampContext()}` }] }];
+        contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: `${senderIdentityHeader}\n${promptWithFollowupContext}\n\n${getLiveTimestampContext()}` }] }];
       }
 
       // 4-Tier AI Pipeline Execution: Primary (OpenAI gpt-5.6-luna) -> Tier 2 (Groq Llama 3.3 70B) -> Tier 3 (Gemini 3.5 Flash) -> Tier 4 (Gemini 3.1 Flash)
@@ -913,6 +1010,7 @@ async function startBot() {
       }
 
       replyText = formatWhatsAppMarkdown(replyText || 'Unable to generate response.');
+      bufferChatMessage(senderJid, rawBotId, 'PodPal BOT', replyText, true);
 
       // ----------------------------------------------------
       // PIPELINE 4: SMART GROUP-TO-DM ROUTING EVALUATION
