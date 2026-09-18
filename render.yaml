@@ -1,0 +1,19 @@
+services:
+  - type: worker
+    name: podpal-whatsapp-worker
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run worker
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
+      - key: GOOGLE_DRIVE_FOLDER_ID
+        sync: false

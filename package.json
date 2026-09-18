@@ -1,0 +1,35 @@
+{
+  "name": "podpal-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PodPal BOT - UniPods METI AI Innovation Cohort Assistant & Next.js Admin Dashboard",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "worker": "node worker/bot.js",
+    "seed": "node worker/seedKnowledge.js"
+  },
+  "dependencies": {
+    "@google/genai": "latest",
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.48.1",
+    "@whiskeysockets/baileys": "^6.7.12",
+    "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0",
+    "lucide-react": "^0.475.0",
+    "next": "^15.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.2",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3"
+  }
+}
