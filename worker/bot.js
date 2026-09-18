@@ -356,16 +356,16 @@ function convertToOpenAiMessages(contentsPayload, systemInstruction) {
 
 /**
  * Executes AI inference using a 3-tier fallback chain:
- * 1. Primary: Groq API -> openai/gpt-oss-120b
+ * 1. Primary: Groq API -> llama-3.3-70b-versatile (Meta Llama 3.3 70B Flagship Model)
  * 2. 1st Fallback: Gemini API -> gemini-3.5-flash-lite
  * 3. 2nd Fallback: Gemini API -> gemini-3.1-flash-lite
  */
 async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
-  const PRIMARY_MODEL = 'openai/gpt-oss-120b';
+  const PRIMARY_MODEL = 'llama-3.3-70b-versatile';
   const FALLBACK_1_MODEL = 'gemini-3.5-flash-lite';
   const FALLBACK_2_MODEL = 'gemini-3.1-flash-lite';
 
-  // --- Tier 1: Primary Model (openai/gpt-oss-120b via Groq API) ---
+  // --- Tier 1: Primary Model (llama-3.3-70b-versatile via Groq API) ---
   if (process.env.GROQ_API_KEY) {
     try {
       console.log(`[AI Pipeline] Calling Primary Model: ${PRIMARY_MODEL} (Groq API)...`);
@@ -422,10 +422,19 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
   throw new Error('All AI models in the fallback chain failed.');
 }
 
+let cachedStaticSystemInstruction = null;
+let lastKbFetchTime = 0;
+
 /**
- * Dynamically builds system instruction from Supabase knowledge base with live multi-timezone timestamps.
+ * Returns a static, 100% cacheable system instruction for Groq & Gemini prompt caching.
+ * Caches knowledge base in memory to ensure prompt prefix remains identical across queries.
  */
-async function getDynamicSystemInstruction() {
+async function getStaticSystemInstruction() {
+  const now = Date.now();
+  if (cachedStaticSystemInstruction && (now - lastKbFetchTime < 10 * 60 * 1000)) {
+    return cachedStaticSystemInstruction;
+  }
+
   const { data: entries } = await supabase
     .from('knowledge_entries')
     .select('course_name, content, link_url')
@@ -435,29 +444,8 @@ async function getDynamicSystemInstruction() {
     ? entries.map(e => `### [Category: ${e.course_name}]\n${e.content}${e.link_url ? `\nLink: ${e.link_url}` : ''}`).join('\n\n---\n\n')
     : 'No active guidelines registered.';
 
-  const now = new Date();
-  const nowIso = now.toISOString();
-  // Calculate live cohort timezones
-  const catTime = new Date(now.getTime() + 2 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' CAT (UTC+2)';
-  const watTime = new Date(now.getTime() + 1 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' WAT (UTC+1)';
-  const eatTime = new Date(now.getTime() + 3 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' EAT (UTC+3)';
-  const gmtTime = now.toISOString().replace('T', ' ').substring(0, 19) + ' GMT/UTC';
-
-  return `
+  cachedStaticSystemInstruction = `
 You are PodPal BOT, the official AI Assistant for the UniPods METI AI Innovation Cohort.
-
-CURRENT LIVE SYSTEM TIMESTAMP (RIGHT NOW):
-- ISO Timestamp: ${nowIso}
-- CAT (Central Africa Time / Rwanda): ${catTime}
-- WAT (West Africa Time / Nigeria): ${watTime}
-- EAT (East Africa Time / Ethiopia): ${eatTime}
-- GMT / UTC: ${gmtTime}
-
-CRITICAL DEADLINE COMPARISON INSTRUCTIONS:
-- ONLY discuss or evaluate deadlines when the user explicitly asks about deadlines, schedules, submission dates, or upcoming milestones.
-- DO NOT append unsolicited deadline notices, reminders, or countdowns to answers that are unrelated to deadlines (e.g., login issues, track FAQs).
-- UN General Assembly Demo Video Deadline: Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT / 1:00 PM WAT).
-- If current LIVE time is past 2:00 PM CAT (12:00 PM GMT) on Friday, 18 Sept 2026 AND the user specifically asks about the UN GA deadline, inform them that the deadline HAS PASSED. Direct users with late submission questions to unipods.regional@undp.org.
 
 SUPPORTED TRACKS:
 1. MIT Universal AI Track
@@ -480,7 +468,27 @@ STRICT CONSTRAINTS & BEHAVIOR:
 10. Unverified Facts: If an answer cannot be verified, inform the user in their language:
    - English: "I don't have verified information on this yet. Please contact the team at unipods.regional@undp.org."
    - French: "Je n'ai pas encore d'informations vérifiées à ce sujet. Veuillez contacter l'équipe à unipods.regional@undp.org."
-`;
+
+CRITICAL DEADLINE COMPARISON INSTRUCTIONS:
+- ONLY discuss or evaluate deadlines when the user explicitly asks about deadlines, schedules, submission dates, or upcoming milestones.
+- DO NOT append unsolicited deadline notices, reminders, or countdowns to answers that are unrelated to deadlines (e.g., login issues, track FAQs).
+- UN General Assembly Demo Video Deadline: Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT / 1:00 PM WAT).
+- If current LIVE time is past 2:00 PM CAT (12:00 PM GMT) on Friday, 18 Sept 2026 AND the user specifically asks about the UN GA deadline, inform them that the deadline HAS PASSED. Direct users with late submission questions to unipods.regional@undp.org.
+`.trim();
+
+  lastKbFetchTime = now;
+  return cachedStaticSystemInstruction;
+}
+
+/**
+ * Returns live timestamp string to append to user turn payload without invalidating static prompt cache.
+ */
+function getLiveTimestampContext() {
+  const now = new Date();
+  const catTime = new Date(now.getTime() + 2 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' CAT';
+  const watTime = new Date(now.getTime() + 1 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' WAT';
+  const eatTime = new Date(now.getTime() + 3 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' EAT';
+  return `[System Time: ${catTime} / ${watTime} / ${eatTime}]`;
 }
 
 /**
