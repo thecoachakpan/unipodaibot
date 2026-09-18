@@ -148,13 +148,16 @@ const supabase = createClient(
 );
 
 // Verified cohort facilitator WhatsApp JIDs (Diane, Gift, Jeovaire, Munira, Charles Bolton)
-const FACILITATOR_JIDS = [
-  '250788000000@s.whatsapp.net', // Diane JID
-  '27793565520@s.whatsapp.net',  // Charles Bolton JID
-  '250785813700@s.whatsapp.net', // Jeovaire JID
-  '250781718040@s.whatsapp.net'  // Munira JID
+const FACILITATOR_MAP = [
+  { name: 'diane', jid: '250788000000@s.whatsapp.net' },
+  { name: 'charles', jid: '27793565520@s.whatsapp.net' },
+  { name: 'bolton', jid: '27793565520@s.whatsapp.net' },
+  { name: 'gift', jid: '27793565520@s.whatsapp.net' },
+  { name: 'jeovaire', jid: '250785813700@s.whatsapp.net' },
+  { name: 'munira', jid: '250781718040@s.whatsapp.net' }
 ];
 
+const FACILITATOR_JIDS = FACILITATOR_MAP.map(f => f.jid);
 const FACILITATOR_NAMES = ['diane', 'gift', 'jeovaire', 'munira', 'charles', 'bolton'];
 
 let runtimeConfig = { is_active: true, chat_scope: 'both' };
@@ -321,14 +324,16 @@ GROUNDED KNOWLEDGE BASE:
 ${knowledgeContext}
 
 STRICT CONSTRAINTS & BEHAVIOR:
-1. Grounded Accuracy: Answer only using facts in the knowledge base. If an event or meeting has concluded (date prior to current date), explicitly state that it has ended, provide any available recording/slides links, or refer the user to unipods.regional@undp.org.
-2. Dynamic Per-Turn Language Switching: Automatically detect the language of the inbound prompt (English, French, Arabic, Amharic, etc.) on EACH turn and respond fluently in that exact same language. If a user switches languages mid-conversation, switch seamlessly with them!
-3. Proactive Screenshot Request: When a user asks about a technical error, login issue, or platform bug on MIT, Wadhwani, or Ethiopia AI portals that lacks error codes or specific context, proactively prompt: "To give you exact, tailored step-by-step guidance, could you please reply with a screenshot of the error or screen you are seeing?"
-4. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
-5. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
-6. Timezones: Always format call schedules and deadlines with explicit cohort timezones: CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
-7. Focus Shield: Politely decline off-topic requests (e.g., cat poems, general non-program homework) stating your specific setup as the METI AI Cohort helper.
-8. Unverified Facts: If an answer cannot be verified, inform the user in their language:
+1. Ultra-Concise & Direct: Keep all responses brief, direct, and concise (2-4 sentences max, or short bullet points for multi-step guidance). Avoid wordy intros, long filler, or conversational fluff.
+2. Grounded Accuracy: Answer only using facts in the knowledge base. If an event or meeting has concluded (date prior to current date), explicitly state that it has ended, provide any available recording/slides links, or refer the user to unipods.regional@undp.org.
+3. Natural Queries: Participants ask questions naturally. Do NOT require exclamation commands (!deadlines, !links) from participants. Answer natural questions about deadlines, schedules, resources, or requirements immediately and directly.
+4. Dynamic Per-Turn Language Switching: Automatically detect the language of the inbound prompt (English, French, Arabic, Amharic, etc.) on EACH turn and respond fluently in that exact same language.
+5. Proactive Screenshot Request: When a user asks about a technical error, login issue, or platform bug on MIT, Wadhwani, or Ethiopia AI portals that lacks error codes or specific context, proactively prompt: "To give you exact, tailored step-by-step guidance, could you please reply with a screenshot of the error or screen you are seeing?"
+6. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
+7. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
+8. Timezones: Always format call schedules and deadlines with explicit cohort timezones: CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
+9. Focus Shield: Politely decline off-topic requests (e.g., cat poems, general non-program homework) stating your specific setup as the METI AI Cohort helper.
+10. Unverified Facts: If an answer cannot be verified, inform the user in their language:
    - English: "I don't have verified information on this yet. Please contact the team at unipods.regional@undp.org."
    - French: "Je n'ai pas encore d'informations vérifiées à ce sujet. Veuillez contacter l'équipe à unipods.regional@undp.org."
 `;
@@ -339,36 +344,28 @@ STRICT CONSTRAINTS & BEHAVIOR:
  */
 function getWelcomeMessage(isFrench = false) {
   if (isFrench) {
-    return `👋 *Bonjour et bienvenue dans la cohorte d'innovation UniPods METI AI !* ✨
+    return `👋 *Bonjour et bienvenue dans la cohorte METI AI !* ✨
 
-Je suis **PodPal BOT**, votre co-pilote 24/7 ! Je suis là pour vous accompagner tout au long des 3 parcours (**MIT Universal AI**, **Wadhwani Ignite** et **Ethiopia AI Institute**). 🚀
+Je suis *PodPal BOT*, votre assistant 24/7 pour les parcours *MIT Universal AI*, *Wadhwani Ignite* et *Ethiopia AI Institute*.
 
-💡 *Voici ce que je peux faire pour vous* :
-📌 *Répondre aux questions* — Posez vos questions sur les calendriers, exigences ou soumissions !
-📸 *Diagnostiquer les erreurs* — Envoyez une capture d'écran d'une erreur et je l'analyserai !
-🎙️ *Traiter les notes vocales* — Envoyez une note vocale (moins de 90s) dans n'importe quelle langue !
-📅 *Échéances & Liens* — Tapez \`!deadlines\` pour les compte à rebours ou \`!links\` pour les ressources.
-📝 *Résumés de réunions* — Vous avez manqué un appel ? Demandez-moi les points clés !
+💡 *Comment puis-je vous aider ?*
+• Posez vos questions sur les cours, échéances ou réunions.
+• Envoyez des captures d'écran de vos erreurs pour diagnostic.
+• Envoyez une note vocale (<90s).
 
-🛡️ *Bouclier Programme* : Je suis concentré à 100 % sur la réussite de votre cohorte !
-
-*Comment puis-je vous aider aujourd'hui ?* 😊`;
+*Quelle est votre question aujourd'hui ?* 😊`;
   }
 
-  return `👋 *Hey there! Welcome to the UniPods METI AI Innovation Cohort!* ✨
+  return `👋 *Welcome to the UniPods METI AI Cohort!* ✨
 
-I’m **PodPal BOT**, your 24/7 cohort companion! I'm here to support your journey across our 3 tracks (**MIT Universal AI**, **Wadhwani Ignite**, and **Ethiopia AI Institute**). 🚀
+I’m *PodPal BOT*, your 24/7 assistant for *MIT Universal AI*, *Wadhwani Ignite*, and *Ethiopia AI Institute* tracks.
 
-💡 *Here is what I can do for you*:
-📌 *Answer Track FAQs* — Ask me about schedules, requirements, or submission guidelines!
-📸 *Diagnose Errors* — Got a platform error? Send a screenshot and I'll analyze it!
-🎙️ *Listen to Voice Notes* — Drop a quick voice note (under 90s) in any language!
-📅 *Milestones & Links* — Type \`!deadlines\` for countdowns or \`!links\` for official resources.
-📝 *Meeting Summaries* — Missed a live call? Ask me for the key action points!
+💡 *How I can help*:
+• Ask any question about schedules, deadlines, or requirements.
+• Send screenshots of platform errors for quick step-by-step guidance.
+• Send short voice notes (<90s).
 
-🛡️ *Program Focus Guard*: I'm laser-focused on your cohort success, so while I can't write poems about cats or solve unrelated homework, I'm here 24/7 for everything METI AI!
-
-*What can I help you build or resolve today?* 😊`;
+*How can I help you today?* 😊`;
 }
 
 let realtimeInitialized = false;
@@ -513,13 +510,17 @@ async function startBot() {
 
     // Check quote-reply to PodPal BOT in groups
     const isQuotedBotReply = isGroup && contextInfo?.participant?.includes(sock.user?.id?.split(':')[0]);
-    const mentionsAdmin = FACILITATOR_NAMES.some(admin => cleanLower.includes(admin));
+    const mentionedAdmin = FACILITATOR_MAP.find(a => cleanLower.includes(a.name));
+    const mentionsAdmin = !!mentionedAdmin;
     const isTagged = cleanLower.includes('@bot') || cleanLower.includes('!ask');
+
+    const isDeadlineQuery = cleanLower.includes('deadline') || cleanLower.includes('deadlines') || cleanLower.includes('schedule') || cleanLower.includes('when is') || cleanLower.includes('milestone');
+    const isLinkQuery = cleanLower.includes('link') || cleanLower.includes('resource') || cleanLower.includes('portal') || cleanLower.includes('drive');
 
     // Group Chat Scope Filtering
     if (isGroup) {
       if (runtimeConfig.chat_scope === 'private_only') return;
-      if (!isTagged && !mentionsAdmin && !isQuotedBotReply) return;
+      if (!isTagged && !mentionsAdmin && !isQuotedBotReply && !isDeadlineQuery && !isLinkQuery) return;
     }
 
     // Per-user cooldown jitter (15s)
@@ -529,6 +530,26 @@ async function startBot() {
     userCooldowns.set(senderParticipant, now);
 
     const cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').trim();
+    const wordCount = cleanPrompt.split(/\s+/).filter(Boolean).length;
+
+    // Vague Admin Mention Handler in Groups (Tags Admin & Asks Participant for Specific Details)
+    if (isGroup && mentionedAdmin) {
+      const isVague = wordCount < 6 || cleanLower.includes('help') || cleanLower.includes('please') || cleanLower.includes('question') || cleanLower.includes('can you');
+      if (isVague && !cleanLower.includes('my account') && !cleanLower.includes('my credential')) {
+        const adminName = mentionedAdmin.name.charAt(0).toUpperCase() + mentionedAdmin.name.slice(1);
+        const adminJid = mentionedAdmin.jid;
+        const participantNumber = senderParticipant.split('@')[0];
+
+        const vagueText = `Hi @${participantNumber}! Please share the specific question or details you would like to ask @${adminName}. I'll do my best to resolve it for you right away, and I will alert @${adminName} if further assistance is needed! 😊`;
+
+        await sock.sendPresenceUpdate('paused', senderJid);
+        await sock.sendMessage(senderJid, {
+          text: vagueText,
+          mentions: [senderParticipant, adminJid]
+        }, { quoted: msg });
+        return;
+      }
+    }
 
     // ----------------------------------------------------
     // PIPELINE 2: COMMANDS & WELCOME ROUTING
