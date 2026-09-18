@@ -5,6 +5,8 @@
  * screenshot diagnostics, smart DM routing, and admin private scheduling.
  */
 
+import http from 'http';
+import QRCode from 'qrcode';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -27,6 +29,111 @@ import WebSocket from 'ws';
 import qrcode from 'qrcode-terminal';
 
 dotenv.config();
+
+let latestQrString = null;
+let isConnectedToWA = false;
+
+// HTTP Health Check & Web QR Code Server for Render Deployment
+const port = process.env.PORT || 10000;
+const server = http.createServer(async (req, res) => {
+  const url = req.url || '/';
+  if (url === '/qr' || url === '/qr/') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    if (isConnectedToWA) {
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>PodPal BOT - Status</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; text-align: center; }
+            .card { background: #1e293b; padding: 35px; border-radius: 20px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); max-width: 420px; width: 100%; border: 1px solid #334155; }
+            .status { display: inline-block; padding: 10px 24px; border-radius: 9999px; font-weight: 700; font-size: 15px; margin-top: 20px; background: #10b98122; color: #34d399; border: 1px solid #10b98144; }
+            h2 { margin-top: 0; color: #38bdf8; font-size: 24px; }
+            p { color: #94a3b8; font-size: 15px; line-height: 1.6; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>🤖 PodPal BOT is Online!</h2>
+            <p>WhatsApp client is fully authenticated and actively listening for cohort queries 24/7.</p>
+            <div class="status">✅ Connected to WhatsApp</div>
+          </div>
+        </body>
+        </html>
+      `);
+      return;
+    }
+
+    if (!latestQrString) {
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>PodPal BOT - Generating QR</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="refresh" content="4">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; text-align: center; }
+            .card { background: #1e293b; padding: 35px; border-radius: 20px; max-width: 420px; width: 100%; border: 1px solid #334155; }
+            h2 { color: #f59e0b; margin-top: 0; }
+            p { color: #94a3b8; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>⏳ Initializing WhatsApp Engine...</h2>
+            <p>Generating your fresh QR Code. Page will refresh automatically in 4 seconds...</p>
+          </div>
+        </body>
+        </html>
+      `);
+      return;
+    }
+
+    try {
+      const dataUrl = await QRCode.toDataURL(latestQrString, { width: 340, margin: 2 });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>PodPal BOT - Scan QR Code</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="refresh" content="8">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; text-align: center; }
+            .card { background: #1e293b; padding: 32px; border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6); max-width: 420px; width: 100%; border: 1px solid #334155; }
+            img { width: 280px; height: 280px; border-radius: 16px; background: white; padding: 14px; margin: 20px 0; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
+            .badge { display: inline-block; padding: 6px 16px; border-radius: 9999px; font-weight: 600; font-size: 13px; background: #f59e0b22; color: #fbbf24; border: 1px solid #f59e0b44; }
+            p { color: #cbd5e1; font-size: 15px; line-height: 1.5; margin: 10px 0 0 0; }
+            h2 { margin: 0 0 8px 0; color: #f8fafc; font-size: 22px; }
+            .instructions { font-size: 13px; color: #94a3b8; margin-top: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>📱 Scan WhatsApp QR Code</h2>
+            <p class="instructions">Open WhatsApp ➔ Linked Devices ➔ Link a Device, then point camera at image below:</p>
+            <img src="${dataUrl}" alt="WhatsApp QR Code" />
+            <div><span class="badge">⏳ Auto-refreshes every 8 seconds</span></div>
+          </div>
+        </body>
+        </html>
+      `);
+    } catch (err) {
+      res.end('Error generating QR code image');
+    }
+  } else {
+    // Health check endpoint for Render deployment port detector
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', service: 'PodPal Worker', connected: isConnectedToWA }));
+  }
+});
+
+server.listen(port, () => {
+  console.log(`✅ HTTP Health & Web QR Server running on port ${port}`);
+});
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 const supabase = createClient(
@@ -197,6 +304,8 @@ async function startBot() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
+      latestQrString = qr;
+      isConnectedToWA = false;
       console.log('\n======================================================');
       console.log('📱 SCAN THIS QR CODE WITH YOUR WHATSAPP BOT PHONE');
       console.log('======================================================\n');
@@ -204,9 +313,12 @@ async function startBot() {
     }
 
     if (connection === 'close') {
+      isConnectedToWA = false;
       const reconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
       if (reconnect) startBot();
     } else if (connection === 'open') {
+      isConnectedToWA = true;
+      latestQrString = null;
       console.log('✅ PodPal BOT WhatsApp Worker online.');
       startReminderScheduler(sock);
     }
