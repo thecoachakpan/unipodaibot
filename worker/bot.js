@@ -392,7 +392,7 @@ function convertToOpenAiMessages(contentsPayload, systemInstruction) {
 
 /**
  * Executes AI inference using a 4-tier fallback chain:
- * 1. Primary: OpenAI API -> gpt-5.6-luna (or OPENAI_MODEL) with gpt-4o fallback
+ * 1. Primary: OpenAI API -> gpt-5.6-luna (or OPENAI_MODEL)
  * 2. 1st Fallback: Groq API -> llama-3.3-70b-versatile
  * 3. 2nd Fallback: Gemini API -> gemini-3.5-flash-lite
  * 4. 3rd Fallback: Gemini API -> gemini-3.1-flash-lite
@@ -414,16 +414,7 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
       console.log(`[AI Pipeline] 🟢 Primary Model (${OPENAI_PRIMARY_MODEL}) succeeded!`);
       return reply;
     } catch (err) {
-      console.warn(`[AI Pipeline] ⚠️ Primary Model (${OPENAI_PRIMARY_MODEL}) failed: ${err?.message || err}. Trying OpenAI fallback gpt-4o...`);
-      if (OPENAI_PRIMARY_MODEL !== 'gpt-4o' && OPENAI_PRIMARY_MODEL !== 'gpt-4o-mini') {
-        try {
-          const fallbackReply = await callOpenAiModel('gpt-4o', messages);
-          console.log(`[AI Pipeline] 🟢 OpenAI Fallback Model (gpt-4o) succeeded!`);
-          return fallbackReply;
-        } catch (fbErr) {
-          console.warn(`[AI Pipeline] ⚠️ OpenAI Fallback Model (gpt-4o) failed: ${fbErr?.message || fbErr}. Transitioning to Groq...`);
-        }
-      }
+      console.warn(`[AI Pipeline] ⚠️ Primary Model (${OPENAI_PRIMARY_MODEL}) failed: ${err?.message || err}. Transitioning to Groq...`);
     }
   } else {
     console.warn('[AI Pipeline] OPENAI_API_KEY / OpenAI_API_Key not set. Skipping OpenAI tier.');
