@@ -282,7 +282,8 @@ async function useSupabaseAuthState(supabaseClient) {
 }
 
 /**
- * Helper to invoke OpenAI API models (OpenAI Chat Completions format).
+ * Helper to invoke OpenAI API models via the Responses API (/v1/responses).
+ * gpt-5.6-luna and other modern OpenAI models use this endpoint.
  */
 async function callOpenAiModel(modelName, messagesPayload) {
   const apiKey = process.env.OPENAI_API_KEY || process.env.OpenAI_API_Key;
@@ -290,7 +291,18 @@ async function callOpenAiModel(modelName, messagesPayload) {
     throw new Error('OPENAI_API_KEY / OpenAI_API_Key environment variable is missing');
   }
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  // Extract system instruction and build input array from messagesPayload
+  let instructions = '';
+  const input = [];
+  for (const m of messagesPayload) {
+    if (m.role === 'system') {
+      instructions += (instructions ? '\n' : '') + m.content;
+    } else {
+      input.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
+    }
+  }
+
+  const res = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -298,20 +310,34 @@ async function callOpenAiModel(modelName, messagesPayload) {
     },
     body: JSON.stringify({
       model: modelName,
-      messages: messagesPayload,
-      temperature: 0.2
+      instructions: instructions,
+      input: input,
+      reasoning: { effort: 'low', summary: 'auto' },
+      text: { format: { type: 'text' } },
+      store: false
     })
   });
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`OpenAI API returned HTTP ${res.status}: ${errText}`);
+    throw new Error(`OpenAI Responses API returned HTTP ${res.status}: ${errText}`);
   }
 
   const data = await res.json();
-  const text = data.choices?.[0]?.message?.content;
+  // Extract text from the output array
+  const outputItems = data.output || [];
+  let text = '';
+  for (const item of outputItems) {
+    if (item.type === 'message' && Array.isArray(item.content)) {
+      for (const block of item.content) {
+        if (block.type === 'output_text') {
+          text += block.text;
+        }
+      }
+    }
+  }
   if (!text) {
-    throw new Error('OpenAI API returned empty message content');
+    throw new Error('OpenAI Responses API returned empty output');
   }
 
   return text;
@@ -716,6 +742,7 @@ async function startBot() {
   });
 
   sock.ev.on('messages.upsert', async ({ messages }) => {
+   try {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
     if (!runtimeConfig.is_active) return; // Master Kill Switch
@@ -1047,6 +1074,9 @@ async function startBot() {
       console.error('[Inference Error - Silent Retry Exceeded]:', err);
       await sock.sendPresenceUpdate('paused', senderJid);
       // Silent catch - no error message displayed to users on WhatsApp as requested
+    }
+   } catch (globalErr) {
+      console.error('[messages.upsert Global Error - Handler Survived]:', globalErr?.message || globalErr);
     }
   });
 }
