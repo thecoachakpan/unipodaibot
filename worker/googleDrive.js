@@ -12,25 +12,36 @@ let driveClient = null;
 function getDriveClient() {
   if (driveClient) return driveClient;
 
+  // Option 1: Service Account (JWT)
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
 
-  if (!email || !rawKey) {
-    console.warn('[Google Drive] Credentials missing in environment variables.');
-    return null;
+  if (email && rawKey) {
+    const formattedKey = rawKey.replace(/\\n/g, '\n');
+    const auth = new google.auth.JWT(
+      email,
+      null,
+      formattedKey,
+      ['https://www.googleapis.com/auth/drive']
+    );
+    driveClient = google.drive({ version: 'v3', auth });
+    return driveClient;
   }
 
-  const formattedKey = rawKey.replace(/\\n/g, '\n');
+  // Option 2: OAuth 2.0 Credentials (Client ID + Client Secret + Refresh Token)
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
-  const auth = new google.auth.JWT(
-    email,
-    null,
-    formattedKey,
-    ['https://www.googleapis.com/auth/drive']
-  );
+  if (clientId && clientSecret && refreshToken) {
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    driveClient = google.drive({ version: 'v3', auth: oauth2Client });
+    return driveClient;
+  }
 
-  driveClient = google.drive({ version: 'v3', auth });
-  return driveClient;
+  console.warn('[Google Drive] Credentials missing in environment variables.');
+  return null;
 }
 
 /**
@@ -76,4 +87,34 @@ export async function uploadToGoogleDrive(fileBuffer, fileName, mimeType) {
 
   console.log(`[Drive Upload Success] File ID: ${fileId}`);
   return file.data.webViewLink;
+}
+
+/**
+ * Downloads a file buffer from Google Drive given a file ID or Drive link.
+ * @param {string} fileIdOrUrl - Google Drive File ID or full view URL
+ * @returns {Promise<Buffer>} File buffer
+ */
+export async function downloadFromGoogleDrive(fileIdOrUrl) {
+  let fileId = fileIdOrUrl;
+  if (fileIdOrUrl.includes('/d/')) {
+    const match = fileIdOrUrl.match(/\/d\/([^\/]+)/);
+    if (match) fileId = match[1];
+  }
+
+  const drive = getDriveClient();
+  if (drive) {
+    try {
+      const res = await drive.files.get({ fileId: fileId, alt: 'media' }, { responseType: 'arraybuffer' });
+      return Buffer.from(res.data);
+    } catch (err) {
+      console.warn('[Drive API Download Warning]:', err?.message || err);
+    }
+  }
+
+  // Public download fallback
+  const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+  const response = await fetch(downloadUrl);
+  if (!response.ok) throw new Error(`Failed to download file from Drive: HTTP ${response.status}`);
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }

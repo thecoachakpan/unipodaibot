@@ -76,11 +76,26 @@ Note: Always reference timezones: CAT (UTC+2), WAT (UTC+1), EAT (UTC+3), GMT.
   {
     course_name: 'General',
     source_type: 'link',
-    link_url: 'https://teams.microsoft.com',
-    content: `### Official Resource Links
+    link_url: 'https://drive.google.com/file/d/1XxGcCOvLSwylMJo_YqPmclr1y1vCag5o/view?usp=drive_link',
+    content: `### Official Resource Links & FAQ Pack Document
 - **Primary Support Email**: unipods.regional@undp.org
 - **MIT Technical Support**: uaisupport@mit.edu
-- **Wadhwani Q&A Teams ID**: 419 860 837 373 470 (Passcode: g2Z7gc7Q)`
+- **Wadhwani Q&A Teams ID**: 419 860 837 373 470 (Passcode: g2Z7gc7Q)
+- **Official FAQ Pack PDF**: https://drive.google.com/file/d/1XxGcCOvLSwylMJo_YqPmclr1y1vCag5o/view?usp=drive_link`
+  },
+  {
+    course_name: 'General',
+    source_type: 'official_doc',
+    link_url: 'https://drive.google.com/file/d/1XxGcCOvLSwylMJo_YqPmclr1y1vCag5o/view?usp=drive_link',
+    content: `### METI UniPods AI Innovation Programme (Cohort 1) Official Overview & FAQ Pack
+- **Sponsor & Funding**: Japanese Ministry of Economy, Trade and Industry (METI) in partnership with UNDP and timbuktoo.
+- **Pipeline**: Pipeline for UNDP timbuktoo Hubs supporting early-stage capital, policy, and acceleration.
+- **UniPods**: University Innovation Pods makerspaces across 21 countries (23 operational + 5 launching by Dec 2026).
+- **MIT Track 1**: Self-paced foundational AI ($900 fee 100% waived via voucher code). Exactly 1 slot per solution team. Completion deadline: Sunday, 18 October 2026.
+- **Wadhwani Track 2**: 14-week entrepreneurship journey led by Charles Bolton. Live classes Tuesdays & Thursdays @ 3pm CAT on Teams. UniPod meetups every 3 weeks. Unlimited team member signups.
+- **EAII Track 3**: 3-month virtual instructor-led advanced AI program hosted by Ethiopian AI Institute in Addis Ababa.
+- **Track 4 In-Person Bootcamp**: 50 top teams selected in late Nov 2026 to attend in-person bootcamp in Addis Ababa, Ethiopia starting 1 Dec 2026 (1 founder per team). Unselected teams placed in Feb 2027 second-chance pool.
+- **Master Progression Gate**: MIT certificate + Wadhwani active status -> unlocks EAII phase and costed workplan submission (due 25 Oct 2026).`
   }
 ];
 

@@ -45,9 +45,9 @@ An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** desig
 │  - Anti-Ban safeguards (Burst rate-limiter, jitter)         │
 │  - Google Drive & Link Auto-Ingestion Pipeline              │
 │  - 3-Tier AI Fallback Pipeline:                             │
-│    1. Primary: Groq API (openai/gpt-oss-120b)              │
-│    2. 1st Fallback: Gemini API (gemini-3.5-flash-lite)      │
-│    3. 2nd Fallback: Gemini API (gemini-3.1-flash-lite)      │
+│    1. Primary: Gemini API (gemini-2.5-flash-lite)          │
+│    2. 1st Fallback: Gemini API (gemini-3.1-flash-lite)      │
+│    3. 2nd Fallback: Gemini API (gemini-3.5-flash-lite)      │
 │  - Render Zero-Sleep Uptime: HTTP /health & 9m Self-Ping    │
 └──────────────────────────────┘
 ```
@@ -77,9 +77,9 @@ Running automated bots via Baileys connects as an emulated WhatsApp Web multi-de
 ## 3. Core AI Engine & Multimodal Capabilities: 3-Tier Fallback Pipeline
 
 **PodPal BOT** operates using a highly resilient **3-Tier AI Fallback Engine**:
-1. **Primary Model — Groq API (`openai/gpt-oss-120b`)**: High-speed inference via Groq's API (`GROQ_API_KEY`).
-2. **1st Fallback Model — Google GenAI (`gemini-3.5-flash-lite`)**: Activated automatically if Groq is missing, rate-limited, or unavailable (`GEMINI_API_KEY`).
-3. **2nd Fallback Model — Google GenAI (`gemini-3.1-flash-lite`)**: Activated if `gemini-3.5-flash-lite` experiences a transient outage or 503 error.
+1. **Primary Model — Google GenAI (`gemini-2.5-flash-lite`)**: High-speed inference via Google's Gemini API (`GEMINI_API_KEY`).
+2. **1st Fallback Model — Google GenAI (`gemini-3.1-flash-lite`)**: Activated automatically if `gemini-2.5-flash-lite` experiences a rate-limit or transient error.
+3. **2nd Fallback Model — Google GenAI (`gemini-3.5-flash-lite`)**: Activated automatically if both primary and 1st fallback models experience transient outages.
 
 **Multimodal & Intelligence Features**:
 - **Dynamic Per-Turn Language Detection & Mid-Chat Switching**: Automatically detects the language of every prompt (English, French, Arabic, Amharic, Swahili, etc.) on each turn. If a user switches from English to French mid-conversation, **PodPal BOT** seamlessly switches to French!

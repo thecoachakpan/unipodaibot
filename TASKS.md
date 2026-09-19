@@ -11,7 +11,7 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
 - [x] **1.2 Dependencies & Configuration**
   - Install Next.js, React, Tailwind CSS, Lucide Icons, `@supabase/supabase-js`, `@supabase/ssr`.
   - Install `@whiskeysockets/baileys`, `@google/genai`, `googleapis`, `dotenv`.
-  - Create `.env.example` with Supabase Auth, Groq API (`GROQ_API_KEY`), Gemini (`GEMINI_API_KEY`), and Google Drive credentials.
+  - Create `.env.example` with Supabase Auth, Gemini (`GEMINI_API_KEY`), and Google Drive credentials.
 - [x] **1.3 Database Schema & Render Deployment Files**
   - Create `schema.sql` for Supabase SQL Editor including `scheduled_reminders` table.
   - Create `Dockerfile` and `render.yaml` for Render 24/7 Web Service deployment (`type: web`) with `/health` check endpoint and 100% Uptime zero-sleep configuration.
@@ -34,9 +34,9 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
 - [x] **2.4 Baileys Engine, 3-Tier AI Pipeline & Smart DM Router (`worker/bot.js`)**
   - Initialize Baileys WhatsApp client with **PodPal BOT** identity.
   - **3-Tier AI Fallback Pipeline**:
-    - **Primary Model**: Groq API (`openai/gpt-oss-120b`).
-    - **1st Fallback Model**: Google GenAI (`gemini-3.5-flash-lite`).
-    - **2nd Fallback Model**: Google GenAI (`gemini-3.1-flash-lite`).
+    - **Primary Model**: Google GenAI (`gemini-2.5-flash-lite`).
+    - **1st Fallback Model**: Google GenAI (`gemini-3.1-flash-lite`).
+    - **2nd Fallback Model**: Google GenAI (`gemini-3.5-flash-lite`).
   - **Render 100% Uptime (Zero-Sleep) Engine**: HTTP Server listening on process `PORT` providing `/health` JSON metrics & built-in 9-minute heartbeat (`startSelfPing()`).
   - **Connection Resilience & Error Boundaries**: 10s backoff on session conflict (`connectionReplaced`), clean timer shutdowns, and process-level uncaught exception handlers.
   - Implement **Per-Turn Multilingual Detection & Mid-Chat Language Switcher** (seamlessly switches between English, French, Arabic, etc.).
@@ -73,7 +73,7 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
 
 ## Phase 4: Documentation, Testing & Deployment
 - [x] **4.1 Workspace Documentation (`README.md`, `UniPods_AI_Assistant_Spec.md`)**
-  - Document system architecture, 3-tier AI fallback engine, Render zero-sleep self-ping heartbeat setup, UptimeRobot external pinging, Supabase setup, Google Drive setup, Admin DM scheduling, Smart DM routing, language switching, welcome persona, multi-user summary queue, message deletion, Render deployment, and Vercel hosting.
+  - Document system architecture, 2-tier AI fallback engine, Render zero-sleep self-ping heartbeat setup, UptimeRobot external pinging, Supabase setup, Google Drive setup, Admin DM scheduling, Smart DM routing, language switching, welcome persona, multi-user summary queue, message deletion, Render deployment, and Vercel hosting.
 - [x] **4.2 End-to-End Build & Logic Verification**
   - Execute `npm run build` to verify clean TypeScript compilation.
   - Verify syntax and fallback execution chains (`node --check worker/bot.js`).

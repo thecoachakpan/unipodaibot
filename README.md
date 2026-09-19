@@ -10,7 +10,7 @@ It operates with **zero cloud storage costs**, supports **multilingual voice not
 
 1. **WhatsApp AI Background Worker (Render 24/7 Container)**
    - Built on `@whiskeysockets/baileys` (WhatsApp Web multi-device emulation).
-   - Powered by a **3-Tier AI Fallback Engine**: Primary Model (**Groq API: `openai/gpt-oss-120b`**) ➔ 1st Fallback (**`gemini-3.5-flash-lite`**) ➔ 2nd Fallback (**`gemini-3.1-flash-lite`**).
+   - Powered by a **3-Tier AI Fallback Engine**: Primary Model (**`gemini-2.5-flash-lite`**) ➔ 1st Fallback (**`gemini-3.1-flash-lite`**) ➔ 2nd Fallback (**`gemini-3.5-flash-lite`**).
    - **Per-Turn Dynamic Multilingual Detection & Mid-Chat Language Switcher**: Detects the language of every prompt (English, French, Arabic, Amharic, etc.) on each turn. If a user switches from English to French mid-conversation, PodPal BOT seamlessly switches to French!
    - **Engaging DM Welcome Message**: Greets new DM users with a warm, encouraging, humanized overview of capabilities in their language while enforcing a firm program focus shield against off-topic queries.
    - **Multi-Participant Summary Dispatch Queue & Varied Group Receipts**: When multiple participants reply *"Yes, send to me too"*, PodPal BOT queues them, dispatches summaries sequentially with a 2.5s jitter delay, and posts natural varied group receipts (*"I have sent it to your DM!"*, *"Check your DM shortly"*, *"You'll get it right away!"*).

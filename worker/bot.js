@@ -1,6 +1,6 @@
 /**
  * PodPal BOT - WhatsApp AI Assistant Background Worker
- * Production Baileys WhatsApp client powered by Google Gemini 3.1 Flash-Lite,
+ * Production Baileys WhatsApp client powered by Google Gemini 3-Tier Fallback Engine,
  * Supabase Realtime config sync, Google Drive auto-uploader, computer vision
  * screenshot diagnostics, smart DM routing, and admin private scheduling.
  */
@@ -24,8 +24,9 @@ import {
   hasActiveDMSession,
   stopCleanupTimer
 } from './sessionManager.js';
-import { uploadToGoogleDrive } from './googleDrive.js';
+import { uploadToGoogleDrive, downloadFromGoogleDrive } from './googleDrive.js';
 import { startReminderScheduler, stopReminderScheduler, createScheduledReminder } from './reminderScheduler.js';
+import { processFacilitatorMessage } from './facilitatorKnowledgePipeline.js';
 
 import WebSocket from 'ws';
 import qrcode from 'qrcode-terminal';
@@ -282,194 +283,38 @@ async function useSupabaseAuthState(supabaseClient) {
 }
 
 /**
- * Helper to invoke OpenAI API models via the Responses API (/v1/responses).
- * gpt-5.6-luna and other modern OpenAI models use this endpoint.
- */
-async function callOpenAiModel(modelName, messagesPayload) {
-  const apiKey = process.env.OPENAI_API_KEY || process.env.OpenAI_API_Key;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY / OpenAI_API_Key environment variable is missing');
-  }
-
-  // Extract system instruction and build input array from messagesPayload
-  let instructions = '';
-  const input = [];
-  for (const m of messagesPayload) {
-    if (m.role === 'system') {
-      instructions += (instructions ? '\n' : '') + m.content;
-    } else {
-      input.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
-    }
-  }
-
-  const res = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: modelName,
-      instructions: instructions,
-      input: input,
-      reasoning: { effort: 'low', summary: 'auto' },
-      text: { format: { type: 'text' } },
-      store: false
-    })
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`OpenAI Responses API returned HTTP ${res.status}: ${errText}`);
-  }
-
-  const data = await res.json();
-
-  // Log cache hit stats
-  const usage = data.usage;
-  if (usage) {
-    const cached = usage.input_tokens_details?.cached_tokens || 0;
-    console.log(`[OpenAI Cache] Input: ${usage.input_tokens}, Cached: ${cached}, Output: ${usage.output_tokens}`);
-  }
-
-  // Extract text from the output array
-  const outputItems = data.output || [];
-  let text = '';
-  for (const item of outputItems) {
-    if (item.type === 'message' && Array.isArray(item.content)) {
-      for (const block of item.content) {
-        if (block.type === 'output_text') {
-          text += block.text;
-        }
-      }
-    }
-  }
-  if (!text) {
-    throw new Error('OpenAI Responses API returned empty output');
-  }
-
-  return text;
-}
-
-/**
- * Helper to invoke Groq API models (OpenAI Chat Completions format).
- */
-async function callGroqModel(modelName, messagesPayload) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new Error('GROQ_API_KEY environment variable is missing');
-  }
-
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: modelName,
-      messages: messagesPayload,
-      temperature: 0.2
-    })
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Groq API returned HTTP ${res.status}: ${errText}`);
-  }
-
-  const data = await res.json();
-  const text = data.choices?.[0]?.message?.content;
-  if (!text) {
-    throw new Error('Groq API returned empty message content');
-  }
-
-  return text;
-}
-
-/**
- * Converts internal payload or chat history into OpenAI message objects format for Groq & OpenAI.
- */
-function convertToOpenAiMessages(contentsPayload, systemInstruction) {
-  const messages = [{ role: 'system', content: systemInstruction }];
-
-  if (typeof contentsPayload === 'string') {
-    messages.push({ role: 'user', content: contentsPayload });
-  } else if (Array.isArray(contentsPayload)) {
-    for (const turn of contentsPayload) {
-      if (typeof turn === 'string') {
-        messages.push({ role: 'user', content: turn });
-      } else if (turn && typeof turn === 'object') {
-        const role = (turn.role === 'model' || turn.role === 'assistant') ? 'assistant' : 'user';
-        let textContent = '';
-        if (typeof turn.parts === 'string') {
-          textContent = turn.parts;
-        } else if (Array.isArray(turn.parts)) {
-          for (const part of turn.parts) {
-            if (part.text) {
-              textContent += (textContent ? '\n' : '') + part.text;
-            }
-          }
-        } else if (turn.content) {
-          textContent = turn.content;
-        }
-
-        if (textContent) {
-          messages.push({ role, content: textContent });
-        }
-      }
-    }
-  }
-
-  return messages;
-}
-
-/**
- * Executes AI inference using a 4-tier fallback chain:
- * 1. Primary: OpenAI API -> gpt-5.6-luna (or OPENAI_MODEL)
- * 2. 1st Fallback: Groq API -> llama-3.3-70b-versatile
+ * Executes AI inference using a 3-tier Gemini fallback chain:
+ * 1. Primary: Gemini API -> gemini-2.5-flash-lite
+ * 2. 1st Fallback: Gemini API -> gemini-3.1-flash-lite
  * 3. 2nd Fallback: Gemini API -> gemini-3.5-flash-lite
- * 4. 3rd Fallback: Gemini API -> gemini-3.1-flash-lite
  */
 async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
-  const OPENAI_PRIMARY_MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
-  const GROQ_MODEL = 'llama-3.3-70b-versatile';
-  const FALLBACK_1_MODEL = 'gemini-3.5-flash-lite';
-  const FALLBACK_2_MODEL = 'gemini-3.1-flash-lite';
+  const PRIMARY_MODEL = 'gemini-2.5-flash-lite';
+  const FALLBACK_1_MODEL = 'gemini-3.1-flash-lite';
+  const FALLBACK_2_MODEL = 'gemini-3.5-flash-lite';
 
-  const openAiKey = process.env.OPENAI_API_KEY || process.env.OpenAI_API_Key;
-
-  // --- Tier 1: Primary Model (OpenAI API) ---
-  if (openAiKey) {
-    const messages = convertToOpenAiMessages(contentsPayload, systemInstruction);
-    try {
-      console.log(`[AI Pipeline] Calling Primary Model: ${OPENAI_PRIMARY_MODEL} (OpenAI API)...`);
-      const reply = await callOpenAiModel(OPENAI_PRIMARY_MODEL, messages);
-      console.log(`[AI Pipeline] 🟢 Primary Model (${OPENAI_PRIMARY_MODEL}) succeeded!`);
-      return reply;
-    } catch (err) {
-      console.warn(`[AI Pipeline] ⚠️ Primary Model (${OPENAI_PRIMARY_MODEL}) failed: ${err?.message || err}. Transitioning to Groq...`);
+  // --- Tier 1: Primary Model (gemini-2.5-flash-lite via Gemini API) ---
+  try {
+    console.log(`[AI Pipeline] Calling Primary Model: ${PRIMARY_MODEL} (Gemini API)...`);
+    const response = await ai.models.generateContent({
+      model: PRIMARY_MODEL,
+      contents: contentsPayload,
+      config: {
+        systemInstruction,
+        temperature: 0.2,
+      }
+    });
+    if (response?.text) {
+      const um = response.usageMetadata;
+      if (um) console.log(`[Gemini Cache ${PRIMARY_MODEL}] Input: ${um.promptTokenCount}, Cached: ${um.cachedContentTokenCount || 0}, Output: ${um.candidatesTokenCount}`);
+      console.log(`[AI Pipeline] 🟢 Primary Model (${PRIMARY_MODEL}) succeeded!`);
+      return response.text;
     }
-  } else {
-    console.warn('[AI Pipeline] OPENAI_API_KEY / OpenAI_API_Key not set. Skipping OpenAI tier.');
+  } catch (err) {
+    console.warn(`[AI Pipeline] ⚠️ Primary Model (${PRIMARY_MODEL}) failed: ${err?.message || err}. Transitioning to 1st Fallback model (${FALLBACK_1_MODEL})...`);
   }
 
-  // --- Tier 2: Groq Model (llama-3.3-70b-versatile) ---
-  if (process.env.GROQ_API_KEY) {
-    try {
-      console.log(`[AI Pipeline] Calling Groq Model: ${GROQ_MODEL}...`);
-      const messages = convertToOpenAiMessages(contentsPayload, systemInstruction);
-      const reply = await callGroqModel(GROQ_MODEL, messages);
-      console.log(`[AI Pipeline] 🟢 Groq Model (${GROQ_MODEL}) succeeded!`);
-      return reply;
-    } catch (err) {
-      console.warn(`[AI Pipeline] ⚠️ Groq Model (${GROQ_MODEL}) failed: ${err?.message || err}. Transitioning to 1st Gemini fallback...`);
-    }
-  } else {
-    console.warn('[AI Pipeline] GROQ_API_KEY not set. Skipping Groq model.');
-  }
-
-  // --- Tier 3: 1st Fallback Model (gemini-3.5-flash-lite via Gemini API) ---
+  // --- Tier 2: 1st Fallback Model (gemini-3.1-flash-lite via Gemini API) ---
   try {
     console.log(`[AI Pipeline] Calling 1st Fallback Model: ${FALLBACK_1_MODEL} (Gemini API)...`);
     const response = await ai.models.generateContent({
@@ -487,10 +332,10 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
       return response.text;
     }
   } catch (err) {
-    console.warn(`[AI Pipeline] ⚠️ 1st Fallback Model (${FALLBACK_1_MODEL}) failed: ${err?.message || err}. Transitioning to 2nd fallback...`);
+    console.warn(`[AI Pipeline] ⚠️ 1st Fallback Model (${FALLBACK_1_MODEL}) failed: ${err?.message || err}. Transitioning to 2nd Fallback model (${FALLBACK_2_MODEL})...`);
   }
 
-  // --- Tier 4: 2nd Fallback Model (gemini-3.1-flash-lite via Gemini API) ---
+  // --- Tier 3: 2nd Fallback Model (gemini-3.5-flash-lite via Gemini API) ---
   try {
     console.log(`[AI Pipeline] Calling 2nd Fallback Model: ${FALLBACK_2_MODEL} (Gemini API)...`);
     const response = await ai.models.generateContent({
@@ -582,19 +427,10 @@ function findMissedUnrespondedQuestion(chatJid, participantJid) {
   return null;
 }
 
-let cachedStaticSystemInstruction = null;
-let lastKbFetchTime = 0;
-
 /**
- * Returns a static, 100% cacheable system instruction for Groq & Gemini prompt caching.
- * Caches knowledge base in memory to ensure prompt prefix remains identical across queries.
+ * Returns system instruction containing live knowledge base entries from Supabase for Gemini on every request.
  */
 async function getStaticSystemInstruction() {
-  const now = Date.now();
-  if (cachedStaticSystemInstruction && (now - lastKbFetchTime < 10 * 60 * 1000)) {
-    return cachedStaticSystemInstruction;
-  }
-
   const { data: entries } = await supabase
     .from('knowledge_entries')
     .select('course_name, content, link_url')
@@ -604,7 +440,7 @@ async function getStaticSystemInstruction() {
     ? entries.map(e => `### [Category: ${e.course_name}]\n${e.content}${e.link_url ? `\nLink: ${e.link_url}` : ''}`).join('\n\n---\n\n')
     : 'No active guidelines registered.';
 
-  cachedStaticSystemInstruction = `
+  return `
 You are PodPal BOT, the official AI Assistant for the UniPods METI AI Innovation Cohort.
 
 SUPPORTED TRACKS:
@@ -630,16 +466,17 @@ STRICT CONSTRAINTS & BEHAVIOR:
 12. Unverified Facts: If an answer cannot be verified, inform the user in their language:
    - English: "I don't have verified information on this yet. Please contact the team at unipods.regional@undp.org."
    - French: "Je n'ai pas encore d'informations vérifiées à ce sujet. Veuillez contacter l'équipe à unipods.regional@undp.org."
+13. NO External Drive Links & Native Document Uploads:
+    - NEVER output raw Google Drive web links, URLs, or external links for downloadable documents in text responses.
+    - When a participant asks for an official document, handbook, guide, or FAQ pack, evaluate whether their request specifies a known document.
+    - IF THE REQUEST IS VAGUE OR AMBIGUOUS (e.g. "send me the file", "can I get the document?", "send PDF"): Do NOT send any file or link. Instead, politely ask the participant to clarify which specific document they need (e.g. "Which document would you like me to send? Please specify: 1. Official Cohort FAQ Pack, 2. Wadhwani Business Model Template, or 3. MIT Track Guide.").
+    - IF THEY SPECIFY A KNOWN DOCUMENT (e.g., Official Cohort FAQ Pack): State that you are uploading the official PDF document directly into the chat.
 
 CRITICAL DEADLINE COMPARISON INSTRUCTIONS:
 - ONLY discuss or evaluate deadlines when the user explicitly asks about deadlines, schedules, submission dates, or upcoming milestones.
 - DO NOT append unsolicited deadline notices, reminders, or countdowns to answers that are unrelated to deadlines (e.g., login issues, track FAQs).
 - UN General Assembly Demo Video Deadline: Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT / 1:00 PM WAT).
-- If current LIVE time is past 2:00 PM CAT (12:00 PM GMT) on Friday, 18 Sept 2026 AND the user specifically asks about the UN GA deadline, inform them that the deadline HAS PASSED. Direct users with late submission questions to unipods.regional@undp.org.
 `.trim();
-
-  lastKbFetchTime = now;
-  return cachedStaticSystemInstruction;
 }
 
 /**
@@ -836,6 +673,26 @@ async function startBot() {
     // Voice note group guardrail
     if (isGroup && isAudio) return;
 
+    // ----------------------------------------------------
+    // PIPELINE 1.5: FACILITATOR AI AUTO-SUMMARIZER & KNOWLEDGE PIPELINE
+    // ----------------------------------------------------
+    if (isGroup && isFacilitator) {
+      processFacilitatorMessage(sock, msg, supabase, ai, callAiWithFallbackChain);
+    }
+
+    // ----------------------------------------------------
+    // PIPELINE 1.6: PARTICIPANT FEEDBACK & GRATITUDE REACTION ENGINE
+    // ----------------------------------------------------
+    const gratitudeKeywords = ['thanks', 'thank you', 'merci', 'that worked', 'solved it', 'awesome bot', 'great bot', 'much appreciated', 'bless you'];
+    const isGratitude = gratitudeKeywords.some(k => cleanLower.includes(k));
+    if (isGratitude && cleanLower.split(/\s+/).length < 12) {
+      const happyEmojis = ['🙏', '😊', '💙', '👍'];
+      const chosenEmoji = happyEmojis[Math.floor(Math.random() * happyEmojis.length)];
+      try {
+        await sock.sendMessage(senderJid, { react: { text: chosenEmoji, key: msg.key } });
+      } catch (reactErr) {}
+    }
+
     const validPushName = getValidPushName(msg);
     let cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').replace(/podpal/gi, '').replace(/bot/gi, '').trim();
     
@@ -891,7 +748,48 @@ async function startBot() {
     // Group Chat Scope Filtering (Processes quote-replies, mentions, tags, or any program inquiries/questions)
     if (isGroup) {
       if (runtimeConfig.chat_scope === 'private_only') return;
-      if (!isTagged && !mentionsAdmin && !isQuotedBotReply && !isQuestionOrInquiry) return;
+      if (!isTagged && !mentionsAdmin && !isQuotedBotReply && !isQuestionOrInquiry && !contextInfo?.quotedMessage) return;
+    }
+
+    // ----------------------------------------------------
+    // PIPELINE 1.7: PEER SUPPORT & INTERLEAVED PARTICIPANT ANSWER VALIDATOR
+    // ----------------------------------------------------
+    const isQuotedPeerReply = isGroup && !isFacilitator && !isQuotedBotReply && contextInfo?.quotedMessage;
+    if (isQuotedPeerReply && programKeywordMatch) {
+      const quotedPeerText = contextInfo.quotedMessage?.conversation ||
+                             contextInfo.quotedMessage?.extendedTextMessage?.text || '';
+      if (quotedPeerText) {
+        (async () => {
+          try {
+            const peerPrompt = `
+Participant A asked: "${quotedPeerText}"
+Participant B replied: "${rawText}"
+
+TASK:
+Check if Participant B's reply is program-related and accurate according to official UniPods METI AI cohort rules.
+- If ACCURATE & HELPFUL: "status": "accurate"
+- If MISLEADING / INCORRECT: "status": "inaccurate"
+- If NOT an answer/casual chat: "status": "ignore"
+
+Return JSON:
+{ "status": "accurate" | "inaccurate" | "ignore" }
+`.trim();
+            const sysInst = 'You are a precise peer answer evaluator. Output valid JSON only.';
+            const peerCheckRaw = await callAiWithFallbackChain(peerPrompt, sysInst);
+            let cleanPeerJson = peerCheckRaw.trim();
+            if (cleanPeerJson.startsWith('```json')) cleanPeerJson = cleanPeerJson.replace(/```json/g, '').replace(/```/g, '').trim();
+            if (cleanPeerJson.startsWith('```')) cleanPeerJson = cleanPeerJson.replace(/```/g, '').trim();
+            const peerRes = JSON.parse(cleanPeerJson);
+
+            if (peerRes?.status === 'accurate') {
+              await sock.sendMessage(senderJid, { react: { text: '✅', key: msg.key } });
+              console.log(`[Peer Support Validator] ✅ Validated accurate peer answer from ${senderParticipant}`);
+            }
+          } catch (peerErr) {
+            console.warn('[Peer Support Validator Error]:', peerErr?.message || peerErr);
+          }
+        })();
+      }
     }
 
     // Per-user cooldown jitter (15s)
@@ -959,6 +857,47 @@ async function startBot() {
       } catch (err) {
         await sock.sendMessage(senderJid, { text: '⚠️ Failed to schedule reminder. Ensure date/time format is valid.' }, { quoted: msg });
         return;
+      }
+    }
+
+    // ----------------------------------------------------
+    // PIPELINE 2.5: NATIVE WHATSAPP DOCUMENT UPLOAD & CONTEXT GUARDRAIL ENGINE
+    // ----------------------------------------------------
+    const isAskingForDocument = /(send|upload|get|download|share|give|need|attach).*(pdf|doc|document|file|handbook|guide|faq pack|pack)/i.test(cleanLower) ||
+                                /(pdf|document|handbook|faq pack)\b/i.test(cleanLower);
+
+    if (isAskingForDocument) {
+      const isFaqPackSpecified = /(faq|info pack|information pack|cohort 1|programme guide|official doc|official faq|overview)/i.test(cleanLower);
+      const isVagueRequest = !isFaqPackSpecified && (cleanLower.split(/\s+/).length < 8);
+
+      if (isVagueRequest) {
+        // Enforce Context Guardrail: Ask participant to specify exact document
+        const clarifyText = `📄 *Document Request Clarification*:\n\nWhich specific document would you like me to upload for you? Please specify:\n\n1. 📘 *Official Cohort FAQ & Info Pack*\n2. 📝 *Wadhwani Business Model Template*\n3. 🎓 *MIT Track Guide*\n\nPlease reply with the exact document title so I can upload it directly into our chat! 😊`;
+        await sock.sendPresenceUpdate('paused', senderJid);
+        await sock.sendMessage(senderJid, { text: clarifyText }, { quoted: msg });
+        return;
+      }
+
+      if (isFaqPackSpecified) {
+        // Upload native PDF file directly into chat
+        try {
+          await sock.sendPresenceUpdate('composing', senderJid);
+          console.log(`[Native Document Upload] 📄 Fetching official PDF for ${senderParticipant}...`);
+          
+          const faqPdfBuffer = await downloadFromGoogleDrive('1XxGcCOvLSwylMJo_YqPmclr1y1vCag5o');
+          
+          await sock.sendMessage(senderJid, {
+            document: faqPdfBuffer,
+            fileName: 'METI_UniPods_AI_Innovation_Programme_FAQ_Pack.pdf',
+            mimetype: 'application/pdf',
+            caption: '📄 *METI UniPods AI Innovation Programme (Cohort 1) — Official FAQ Pack*\n\nHere is your official PDF document uploaded directly into our chat!'
+          }, { quoted: msg });
+          
+          await sock.sendPresenceUpdate('paused', senderJid);
+          return;
+        } catch (docErr) {
+          console.error('[Native Document Upload Error]:', docErr);
+        }
       }
     }
 
@@ -1034,7 +973,7 @@ async function startBot() {
         contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: `${senderIdentityHeader}\n${promptWithFollowupContext}\n\n${getLiveTimestampContext()}` }] }];
       }
 
-      // 4-Tier AI Pipeline Execution: Primary (OpenAI gpt-5.6-luna) -> Tier 2 (Groq Llama 3.3 70B) -> Tier 3 (Gemini 3.5 Flash) -> Tier 4 (Gemini 3.1 Flash)
+      // 3-Tier AI Pipeline Execution: Primary (Gemini 2.5 Flash-Lite) -> 1st Fallback (Gemini 3.1 Flash-Lite) -> 2nd Fallback (Gemini 3.5 Flash-Lite)
       let replyText = await callAiWithFallbackChain(contentsPayload, systemInstruction);
 
       // Silent drop off-topic questions
