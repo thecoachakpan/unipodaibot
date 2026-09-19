@@ -27,6 +27,7 @@ import {
 import { uploadToGoogleDrive, downloadFromGoogleDrive } from './googleDrive.js';
 import { startReminderScheduler, stopReminderScheduler, createScheduledReminder } from './reminderScheduler.js';
 import { processFacilitatorMessage } from './facilitatorKnowledgePipeline.js';
+import { matchRequestedDocument } from './documentCatalog.js';
 
 import WebSocket from 'ws';
 import qrcode from 'qrcode-terminal';
@@ -861,56 +862,66 @@ Return JSON:
     }
 
     // ----------------------------------------------------
-    // PIPELINE 2.5: CONTEXT-AWARE NATIVE DOCUMENT UPLOAD & GUARDRAIL ENGINE
+    // PIPELINE 2.5: DYNAMIC DOCUMENT CATALOG & CONTEXT MATCHING ENGINE
     // ----------------------------------------------------
-    const isAskingForDocument = /(send|upload|get|download|share|give|need|attach|see|show).*(pdf|doc|document|file|handbook|guide|faq pack|pack|source)/i.test(cleanLower) ||
-                                /(pdf|document|handbook|faq pack)\b/i.test(cleanLower);
+    const isAskingForDocument = /(send|upload|get|download|share|give|need|attach|see|show).*(pdf|doc|document|file|handbook|guide|faq pack|pack|source|syllabus|template)/i.test(cleanLower) ||
+                                /(pdf|document|handbook|faq pack|syllabus|template)\b/i.test(cleanLower);
 
     if (isAskingForDocument) {
-      const isFaqPackSpecified = /(faq|info pack|information pack|cohort 1|programme guide|official doc|official faq|overview)/i.test(cleanLower);
-
-      // Conversational Context Detection: Check if user was recently discussing program info
+      // Gather active conversation context
       const dmHistory = getSessionHistory(senderJid) || [];
       const groupHistory = recentChatMessages.get(senderJid) || [];
+
+      const dmContextStr = dmHistory.map(turn => turn.parts?.[0]?.text || '').join(' ');
+      const groupContextStr = groupHistory
+        .filter(m => m.participant === senderParticipant && (now - m.timestamp < 10 * 60 * 1000))
+        .map(m => m.text || '')
+        .join(' ');
       
-      const hasProgramContextInDM = dmHistory.some(turn => {
-        const text = turn.parts?.[0]?.text || '';
-        return /(mit|wadhwani|ethiopia|cohort|track|deadline|rule|faq|program|schedule|bootcamp|unipod)/i.test(text);
-      });
+      const conversationContext = `${dmContextStr} ${groupContextStr}`.trim();
 
-      const hasProgramContextInGroup = groupHistory.some(m => {
-        return m.participant === senderParticipant && (now - m.timestamp < 10 * 60 * 1000) &&
-               /(mit|wadhwani|ethiopia|cohort|track|deadline|rule|faq|program|schedule|bootcamp|unipod|source|info)/i.test(m.text || '');
-      });
+      const matchResult = await matchRequestedDocument(cleanLower, conversationContext, supabase);
 
-      const isFollowUpToBotReply = !!contextInfo?.quotedMessage || hasProgramContextInDM || hasProgramContextInGroup;
-
-      // If explicit FAQ pack requested OR if this is a follow-up to an active program conversation:
-      if (isFaqPackSpecified || isFollowUpToBotReply) {
+      // CASE 1: MATCHED AN AVAILABLE DOCUMENT -> Upload Native Document Attachment
+      if (matchResult.status === 'MATCHED_AVAILABLE' && matchResult.doc) {
         try {
           await sock.sendPresenceUpdate('composing', senderJid);
-          console.log(`[Context-Aware Document Upload] 📄 Uploading Official FAQ Pack PDF for ${senderParticipant}...`);
-          
-          const faqPdfBuffer = await downloadFromGoogleDrive('1XxGcCOvLSwylMJo_YqPmclr1y1vCag5o');
-          
+          const targetDoc = matchResult.doc;
+          console.log(`[Document Catalog Engine] 📄 Uploading native PDF "${targetDoc.title}" for ${senderParticipant}...`);
+
+          const pdfBuffer = await downloadFromGoogleDrive(targetDoc.drive_file_id);
+
           await sock.sendMessage(senderJid, {
-            document: faqPdfBuffer,
-            fileName: 'METI_UniPods_AI_Innovation_Programme_FAQ_Pack.pdf',
+            document: pdfBuffer,
+            fileName: targetDoc.file_name,
             mimetype: 'application/pdf',
-            caption: '📄 *METI UniPods AI Innovation Programme (Cohort 1) — Official FAQ Pack*\n\nHere is the official document containing the program information and rules we were discussing!'
+            caption: `📄 *${targetDoc.title}*\n\nHere is your official document uploaded directly into our chat!`
           }, { quoted: msg });
-          
+
           await sock.sendPresenceUpdate('paused', senderJid);
           return;
         } catch (docErr) {
-          console.error('[Context-Aware Document Upload Error]:', docErr);
+          console.error('[Document Catalog Engine Upload Error]:', docErr);
         }
       }
 
-      // Only prompt for clarification if it is a completely cold, vague request without any conversation context
-      const isVagueColdRequest = !isFaqPackSpecified && !isFollowUpToBotReply;
-      if (isVagueColdRequest) {
-        const clarifyText = `📄 *Document Request Clarification*:\n\nWhich specific document would you like me to upload for you? Please specify:\n\n1. 📘 *Official Cohort FAQ & Info Pack*\n2. 📝 *Wadhwani Business Model Template*\n3. 🎓 *MIT Track Guide*\n\nPlease reply with the exact document title so I can upload it directly into our chat! 😊`;
+      // CASE 2: EXPLICITLY MATCHED AN UNAVAILABLE DOCUMENT -> Inform user politely without sending wrong file
+      if (matchResult.status === 'MATCHED_UNAVAILABLE' && matchResult.doc) {
+        const unavailableTitle = matchResult.doc.title || matchResult.requestedTitle || 'Requested Document';
+        const availList = (matchResult.availableDocs || [])
+          .map(d => `• 📘 *${d.title}*`)
+          .join('\n');
+
+        const unavailableMsg = `📄 *Document Not Yet Uploaded*:\n\nThe *${unavailableTitle}* has not been uploaded to the official cohort repository yet.\n\n*Currently Available Official Documents*:\n${availList || '• 📘 *METI UniPods Cohort 1 FAQ Pack*'}\n\nIf you have questions about this topic, please ask and I will provide verified details directly! 😊`;
+
+        await sock.sendPresenceUpdate('paused', senderJid);
+        await sock.sendMessage(senderJid, { text: unavailableMsg }, { quoted: msg });
+        return;
+      }
+
+      // CASE 3: VAGUE / COLD REQUEST -> Prompt participant to clarify exact document
+      if (matchResult.status === 'VAGUE_COLD_REQUEST') {
+        const clarifyText = `📄 *Document Request Clarification*:\n\nWhich specific document would you like me to upload for you? Please specify:\n\n1. 📘 *Official Cohort FAQ & Info Pack*\n2. 📝 *Wadhwani Business Model Template* (Coming soon)\n3. 🎓 *MIT Track Guide* (Coming soon)\n\nPlease reply with the exact document title so I can upload it for you! 😊`;
         await sock.sendPresenceUpdate('paused', senderJid);
         await sock.sendMessage(senderJid, { text: clarifyText }, { quoted: msg });
         return;
