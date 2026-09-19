@@ -324,6 +324,14 @@ async function callOpenAiModel(modelName, messagesPayload) {
   }
 
   const data = await res.json();
+
+  // Log cache hit stats
+  const usage = data.usage;
+  if (usage) {
+    const cached = usage.input_tokens_details?.cached_tokens || 0;
+    console.log(`[OpenAI Cache] Input: ${usage.input_tokens}, Cached: ${cached}, Output: ${usage.output_tokens}`);
+  }
+
   // Extract text from the output array
   const outputItems = data.output || [];
   let text = '';
@@ -473,6 +481,8 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
       }
     });
     if (response?.text) {
+      const um = response.usageMetadata;
+      if (um) console.log(`[Gemini Cache ${FALLBACK_1_MODEL}] Input: ${um.promptTokenCount}, Cached: ${um.cachedContentTokenCount || 0}, Output: ${um.candidatesTokenCount}`);
       console.log(`[AI Pipeline] 🟢 1st Fallback Model (${FALLBACK_1_MODEL}) succeeded!`);
       return response.text;
     }
@@ -492,6 +502,8 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
       }
     });
     if (response?.text) {
+      const um = response.usageMetadata;
+      if (um) console.log(`[Gemini Cache ${FALLBACK_2_MODEL}] Input: ${um.promptTokenCount}, Cached: ${um.cachedContentTokenCount || 0}, Output: ${um.candidatesTokenCount}`);
       console.log(`[AI Pipeline] 🟢 2nd Fallback Model (${FALLBACK_2_MODEL}) succeeded!`);
       return response.text;
     }
@@ -612,7 +624,7 @@ STRICT CONSTRAINTS & BEHAVIOR:
 6. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
 7. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
 8. Timezones: Always format call schedules and deadlines with explicit cohort timezones: CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
-9. Focus Shield & Semantic Relevance: You are strictly the AI assistant for the UniPods METI AI Innovation Cohort. Only answer if the overall meaning of the user message is closely related to the METI AI program, cohort tracks, portals, schedules, assignments, deadlines, or platform support. If the prompt is completely UNRELATED (e.g. general trivia, recipes, sports, weather, non-program coding homework), output EXACTLY: "[OFF_TOPIC]". Do NOT answer off-topic queries.
+9. Focus Shield: You assist with anything related to the UniPods METI AI Innovation Cohort, including but not limited to: cohort tracks, portals, schedules, assignments, deadlines, platform support, team formation, hackathon logistics, meeting links, recordings, certificates, enrollment issues, coaching sessions, Open Hours, business/solution development, and general programme questions. Be generous in interpretation — if the message could plausibly relate to the programme, answer it helpfully. ONLY output "[OFF_TOPIC]" if the prompt is completely unrelated to any educational, professional, or cohort context (e.g. cooking recipes, celebrity gossip, sports scores, weather forecasts, entertainment). When in doubt, answer the question.
 10. WhatsApp Profile Names & No Invented Names: Address participants using ONLY their verified WhatsApp profile name (PushName) provided in the prompt context. If PushName is missing, null, or contains only special characters/emojis, NEVER assign, guess, or invent a name (such as "Friend", "User", "Participant", "John"). In group chats, tag them using @phone or respond directly without inventing any name.
 11. Misinterpretations & Apologies Directive: Read every prompt carefully. If a user states that a previous answer was wrong, incorrect, or misinterpreted (e.g., "that's not what I asked", "you misunderstood", "no, I meant..."), ALWAYS begin your response with a sincere, polite apology (e.g., "I apologize for the misunderstanding earlier.") before providing the correct, grounded answer.
 12. Unverified Facts: If an answer cannot be verified, inform the user in their language:
@@ -868,10 +880,15 @@ async function startBot() {
 
     const wordCount = cleanPrompt.split(/\s+/).filter(Boolean).length;
 
-    // Program-Related Inquiry Detector for Groups (Triggers strictly on program keywords or portal queries)
-    const isQuestionOrInquiry = /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project)/i.test(cleanPrompt);
+    // Program-Related Inquiry Detector for Groups (broad keyword + question heuristic)
+    const programKeywordMatch = /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project|unipod|meti|program|programme|course|module|enrol|enrollment|chatbot|team|class|open hour|coaching|milestone|problem statement|bootcamp|addis|funding|timbuktoo|charles|workshop|onboarding|platform|sign up|sign in|blank page|error|email|notification|invite|enrolled|certificate|recap|today|tomorrow|next week|this week)/i.test(cleanPrompt);
 
-    // Group Chat Scope Filtering (Processes quote-replies, mentions, tags, or any program inquiries)
+    // Question-detection heuristic: messages ending with ? or starting with question words are likely inquiries
+    const looksLikeQuestion = cleanPrompt.endsWith('?') || /^(what|when|where|how|who|why|can|is|are|do|does|did|will|should|could|please|any|has|have|was|were|which|explain|tell)/i.test(cleanPrompt.trim());
+
+    const isQuestionOrInquiry = programKeywordMatch || looksLikeQuestion;
+
+    // Group Chat Scope Filtering (Processes quote-replies, mentions, tags, or any program inquiries/questions)
     if (isGroup) {
       if (runtimeConfig.chat_scope === 'private_only') return;
       if (!isTagged && !mentionsAdmin && !isQuotedBotReply && !isQuestionOrInquiry) return;
