@@ -861,28 +861,35 @@ Return JSON:
     }
 
     // ----------------------------------------------------
-    // PIPELINE 2.5: NATIVE WHATSAPP DOCUMENT UPLOAD & CONTEXT GUARDRAIL ENGINE
+    // PIPELINE 2.5: CONTEXT-AWARE NATIVE DOCUMENT UPLOAD & GUARDRAIL ENGINE
     // ----------------------------------------------------
-    const isAskingForDocument = /(send|upload|get|download|share|give|need|attach).*(pdf|doc|document|file|handbook|guide|faq pack|pack)/i.test(cleanLower) ||
+    const isAskingForDocument = /(send|upload|get|download|share|give|need|attach|see|show).*(pdf|doc|document|file|handbook|guide|faq pack|pack|source)/i.test(cleanLower) ||
                                 /(pdf|document|handbook|faq pack)\b/i.test(cleanLower);
 
     if (isAskingForDocument) {
       const isFaqPackSpecified = /(faq|info pack|information pack|cohort 1|programme guide|official doc|official faq|overview)/i.test(cleanLower);
-      const isVagueRequest = !isFaqPackSpecified && (cleanLower.split(/\s+/).length < 8);
 
-      if (isVagueRequest) {
-        // Enforce Context Guardrail: Ask participant to specify exact document
-        const clarifyText = `📄 *Document Request Clarification*:\n\nWhich specific document would you like me to upload for you? Please specify:\n\n1. 📘 *Official Cohort FAQ & Info Pack*\n2. 📝 *Wadhwani Business Model Template*\n3. 🎓 *MIT Track Guide*\n\nPlease reply with the exact document title so I can upload it directly into our chat! 😊`;
-        await sock.sendPresenceUpdate('paused', senderJid);
-        await sock.sendMessage(senderJid, { text: clarifyText }, { quoted: msg });
-        return;
-      }
+      // Conversational Context Detection: Check if user was recently discussing program info
+      const dmHistory = getSessionHistory(senderJid) || [];
+      const groupHistory = recentChatMessages.get(senderJid) || [];
+      
+      const hasProgramContextInDM = dmHistory.some(turn => {
+        const text = turn.parts?.[0]?.text || '';
+        return /(mit|wadhwani|ethiopia|cohort|track|deadline|rule|faq|program|schedule|bootcamp|unipod)/i.test(text);
+      });
 
-      if (isFaqPackSpecified) {
-        // Upload native PDF file directly into chat
+      const hasProgramContextInGroup = groupHistory.some(m => {
+        return m.participant === senderParticipant && (now - m.timestamp < 10 * 60 * 1000) &&
+               /(mit|wadhwani|ethiopia|cohort|track|deadline|rule|faq|program|schedule|bootcamp|unipod|source|info)/i.test(m.text || '');
+      });
+
+      const isFollowUpToBotReply = !!contextInfo?.quotedMessage || hasProgramContextInDM || hasProgramContextInGroup;
+
+      // If explicit FAQ pack requested OR if this is a follow-up to an active program conversation:
+      if (isFaqPackSpecified || isFollowUpToBotReply) {
         try {
           await sock.sendPresenceUpdate('composing', senderJid);
-          console.log(`[Native Document Upload] 📄 Fetching official PDF for ${senderParticipant}...`);
+          console.log(`[Context-Aware Document Upload] 📄 Uploading Official FAQ Pack PDF for ${senderParticipant}...`);
           
           const faqPdfBuffer = await downloadFromGoogleDrive('1XxGcCOvLSwylMJo_YqPmclr1y1vCag5o');
           
@@ -890,14 +897,23 @@ Return JSON:
             document: faqPdfBuffer,
             fileName: 'METI_UniPods_AI_Innovation_Programme_FAQ_Pack.pdf',
             mimetype: 'application/pdf',
-            caption: '📄 *METI UniPods AI Innovation Programme (Cohort 1) — Official FAQ Pack*\n\nHere is your official PDF document uploaded directly into our chat!'
+            caption: '📄 *METI UniPods AI Innovation Programme (Cohort 1) — Official FAQ Pack*\n\nHere is the official document containing the program information and rules we were discussing!'
           }, { quoted: msg });
           
           await sock.sendPresenceUpdate('paused', senderJid);
           return;
         } catch (docErr) {
-          console.error('[Native Document Upload Error]:', docErr);
+          console.error('[Context-Aware Document Upload Error]:', docErr);
         }
+      }
+
+      // Only prompt for clarification if it is a completely cold, vague request without any conversation context
+      const isVagueColdRequest = !isFaqPackSpecified && !isFollowUpToBotReply;
+      if (isVagueColdRequest) {
+        const clarifyText = `📄 *Document Request Clarification*:\n\nWhich specific document would you like me to upload for you? Please specify:\n\n1. 📘 *Official Cohort FAQ & Info Pack*\n2. 📝 *Wadhwani Business Model Template*\n3. 🎓 *MIT Track Guide*\n\nPlease reply with the exact document title so I can upload it directly into our chat! 😊`;
+        await sock.sendPresenceUpdate('paused', senderJid);
+        await sock.sendMessage(senderJid, { text: clarifyText }, { quoted: msg });
+        return;
       }
     }
 
