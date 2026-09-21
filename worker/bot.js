@@ -479,6 +479,60 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
 // Group Metadata Cache (groupJid -> { subject, fetchedAt })
 const groupMetadataCache = new Map();
 
+// LID-to-Phone Resolution Cache — maps @lid JIDs to phone-based @s.whatsapp.net JIDs
+const lidToPhoneCache = new Map();
+
+/**
+ * Populates LID→Phone cache from group metadata participants array.
+ * Each participant has an `id` (phone JID) and optionally a `lid` (LID JID).
+ */
+function cacheGroupParticipantLids(participants) {
+  if (!Array.isArray(participants)) return;
+  for (const p of participants) {
+    // p.id = phone JID (e.g. 2349093696284@s.whatsapp.net)
+    // p.lid = LID JID (e.g. 104859384958394@lid)
+    if (p.id && !p.id.includes('@lid')) {
+      if (p.lid) {
+        lidToPhoneCache.set(p.lid, p.id);
+        const lidNum = p.lid.split('@')[0];
+        if (lidNum) lidToPhoneCache.set(lidNum, p.id);
+      }
+    }
+  }
+}
+
+/**
+ * Resolves a @lid JID to a phone-based JID using the LID cache.
+ * If cache miss, fetches fresh group metadata to populate the cache.
+ * For non-@lid JIDs, returns the input directly.
+ */
+async function resolveParticipantPhone(sock, rawJid, groupJid) {
+  if (!rawJid || typeof rawJid !== 'string') return '';
+  // Already phone-based — return directly
+  if (!rawJid.includes('@lid')) return rawJid;
+
+  // Check cache
+  const cached = lidToPhoneCache.get(rawJid) || lidToPhoneCache.get(rawJid.split('@')[0]);
+  if (cached) return cached;
+
+  // Cache miss — fetch group metadata to populate
+  if (groupJid && groupJid.endsWith('@g.us')) {
+    try {
+      const meta = await sock.groupMetadata(groupJid);
+      if (meta?.participants) {
+        cacheGroupParticipantLids(meta.participants);
+        // Retry lookup after populating cache
+        const resolved = lidToPhoneCache.get(rawJid) || lidToPhoneCache.get(rawJid.split('@')[0]);
+        if (resolved) return resolved;
+      }
+    } catch (err) {
+      console.warn('[LID Resolver] Group metadata fetch failed:', err?.message || err);
+    }
+  }
+
+  return rawJid; // Unresolvable — return as-is
+}
+
 async function getGroupSubject(sock, groupJid) {
   if (!groupJid || !groupJid.endsWith('@g.us')) return 'WhatsApp Group';
   const cached = groupMetadataCache.get(groupJid);
@@ -489,6 +543,8 @@ async function getGroupSubject(sock, groupJid) {
     const meta = await sock.groupMetadata(groupJid);
     const subject = meta?.subject || 'WhatsApp Group';
     groupMetadataCache.set(groupJid, { subject, fetchedAt: Date.now() });
+    // Also cache participant LID→phone mappings
+    if (meta?.participants) cacheGroupParticipantLids(meta.participants);
     return subject;
   } catch (err) {
     return cached?.subject || 'WhatsApp Group';
@@ -510,6 +566,8 @@ async function getKnownGroupJids(sock) {
     for (const g of entries) {
       subjects[g.id] = g.subject || 'WhatsApp Group';
       groupMetadataCache.set(g.id, { subject: g.subject || 'WhatsApp Group', fetchedAt: Date.now() });
+      // Cache participant LID→phone mappings from all groups
+      if (g.participants) cacheGroupParticipantLids(g.participants);
     }
     knownGroupJidsCache = { jids, subjects, fetchedAt: Date.now() };
     return knownGroupJidsCache;
@@ -852,7 +910,11 @@ async function startBot() {
     const isGroup = senderJid.endsWith('@g.us');
 
     const rawParticipant = msg.key.participant || senderJid;
-    const altParticipant = msg.key.participantAlt || msg.key.remoteJidAlt || '';
+
+    // Resolve @lid JID to phone-based JID using group metadata cache
+    const resolvedParticipant = isGroup
+      ? await resolveParticipantPhone(sock, rawParticipant, senderJid)
+      : rawParticipant;
 
     const messageType = Object.keys(msg.message || {})[0];
     const isAudio = messageType === 'audioMessage';
@@ -873,17 +935,17 @@ async function startBot() {
 
     const contextParticipant = contextInfo?.participant || '';
 
-    // Check if the user is an admin across all candidate fields
+    // Check if the user is an admin across all candidate fields (including LID-resolved JID)
     const isFacilitator = isAdminParticipant([
+      resolvedParticipant,
       rawParticipant,
-      altParticipant,
       senderJid,
       contextParticipant
     ]);
 
-    // Resolve true phone number
-    let cleanSenderNum = getCleanPhoneNumber(rawParticipant) 
-      || getCleanPhoneNumber(altParticipant) 
+    // Resolve true phone number using resolved participant first
+    let cleanSenderNum = getCleanPhoneNumber(resolvedParticipant)
+      || getCleanPhoneNumber(rawParticipant)
       || getCleanPhoneNumber(senderJid)
       || getCleanPhoneNumber(contextParticipant);
 
@@ -1668,7 +1730,7 @@ Respond with ONLY the JSON object, nothing else.`;
       // Contextual follow-up check: Retrieve participant's recent message context
       const promptWithFollowupContext = getParticipantFollowupContext(senderJid, senderParticipant, cleanPrompt);
       
-      const cleanSenderNum = getCleanPhoneNumber(senderParticipant);
+      // cleanSenderNum already resolved from multi-candidate LID resolution above (line ~885)
       const adminStatusStr = isFacilitator ? 'YES (Verified Cohort Facilitator / Program Admin)' : 'NO (Cohort Participant)';
 
       let chatEnvHeader = '';
@@ -1773,19 +1835,31 @@ Respond with ONLY the JSON object, nothing else.`;
                                      combinedText.includes('send to dm');
 
       if (isGroup && isParticipantSpecific) {
-        const userHasDM = hasActiveDMSession(senderParticipant);
+        // Use resolved phone-based DM JID for session check and delivery
+        const dmCheckJid = targetDmJid || senderParticipant;
+        const userHasDM = hasActiveDMSession(dmCheckJid);
+        const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : (validPushName || '@participant');
+        const mentionJids = Array.from(new Set([rawParticipant, targetDmJid || rawParticipant].filter(Boolean)));
 
-        if (userHasDM) {
-          // Route detailed response to DM
-          await sock.sendMessage(senderParticipant, { text: replyText });
-          await sock.sendPresenceUpdate('paused', senderJid);
-          await sock.sendMessage(senderJid, { text: `Hi @${senderParticipant.split('@')[0]}, check your DM! I've responded to your message.` }, { quoted: msg, mentions: [senderParticipant] });
-          return;
+        if (userHasDM && targetDmJid) {
+          // Route detailed response to DM using resolved phone JID
+          try {
+            await sock.sendMessage(targetDmJid, { text: replyText });
+            await sock.sendPresenceUpdate('paused', senderJid);
+            await sock.sendMessage(senderJid, {
+              text: `Hi ${displayTag}, check your DM! I've responded to your message. 😊`,
+              mentions: mentionJids
+            }, { quoted: msg });
+            return;
+          } catch (dmErr) {
+            console.error('[Smart DM Routing Error - Falling back to group]:', dmErr?.message || dmErr);
+            // Fall through to group reply below
+          }
         } else {
           // Prompt user to initiate DM
-          const dmPrompt = `Hi @${senderParticipant.split('@')[0]}, for your personal account query, please send me 'Hi' in a private DM so I can send your tailored steps!`;
+          const dmPrompt = `Hi ${displayTag}, for your personal account query, please send me 'Hi' in a private DM so I can send your tailored steps!`;
           await sock.sendPresenceUpdate('paused', senderJid);
-          await sock.sendMessage(senderJid, { text: dmPrompt }, { quoted: msg, mentions: [senderParticipant] });
+          await sock.sendMessage(senderJid, { text: dmPrompt, mentions: mentionJids }, { quoted: msg });
           return;
         }
       }

@@ -115,6 +115,13 @@ export async function downloadFromGoogleDrive(fileIdOrUrl) {
   const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
   const response = await fetch(downloadUrl);
   if (!response.ok) throw new Error(`Failed to download file from Drive: HTTP ${response.status}`);
+
+  // Validate response is actual file content, not an HTML redirect/virus scan warning page
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('text/html')) {
+    throw new Error(`Google Drive returned HTML page instead of file content (likely virus scan warning for large files). Use Drive API with service account credentials for reliable downloads.`);
+  }
+
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
