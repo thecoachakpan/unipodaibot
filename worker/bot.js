@@ -1497,7 +1497,7 @@ Respond with ONLY the JSON object, nothing else.`;
       const matchResult = await matchRequestedDocument(cleanLower, conversationContext, supabase);
 
       // CASE 1: MATCHED AN AVAILABLE DOCUMENT -> Upload Native Document Attachment
-      // In groups: route the document to participant's DM if active, else upload directly to group
+      // In groups: route the document to participant's DM to avoid cluttering the group
       if (matchResult.status === 'MATCHED_AVAILABLE' && matchResult.doc) {
         try {
           await sock.sendPresenceUpdate('composing', senderJid);
@@ -1510,52 +1510,36 @@ Respond with ONLY the JSON object, nothing else.`;
             throw new Error('Downloaded file buffer from Google Drive is empty.');
           }
 
-          const explicitDMRequested = /(in dm|to my dm|in private|privately|send me in dm|send to my dm|send this to me|send privately|dm me|send to dm|send to me privately)/i.test(cleanLower);
-
-          if (isGroup && explicitDMRequested) {
-            const userHasDM = hasActiveDMSession(senderParticipant);
-            const targetDmJid = `${getCleanPhoneNumber(senderParticipant)}@s.whatsapp.net`;
-            const { mentionJid, tagStr } = getMentionDetails(senderParticipant);
-
-            let dmSentSuccess = false;
-            if (userHasDM) {
-              try {
-                await sock.sendMessage(targetDmJid, {
-                  document: pdfBuffer,
-                  fileName: targetDoc.file_name,
-                  mimetype: 'application/pdf',
-                  caption: `📄 *${targetDoc.title}*\n\nHere is your official document delivered privately to your DM!`
-                });
-                dmSentSuccess = true;
-              } catch (dmSendErr) {
-                console.error('[Document DM Direct Delivery Error]:', dmSendErr);
-              }
-            }
-
-            if (dmSentSuccess) {
-              await sock.sendPresenceUpdate('paused', senderJid);
-              await sock.sendMessage(senderJid, {
-                text: `📄 ${tagStr}, I've sent *${targetDoc.title}* directly to your private DM! Check your chat with me. 😊`,
-                mentions: [mentionJid]
-              }, { quoted: msg });
-            } else {
-              // User has no active DM thread or DM delivery failed -> Upload directly in group chat so delivery NEVER fails!
-              await sock.sendPresenceUpdate('paused', senderJid);
-              await sock.sendMessage(senderJid, {
+          if (isGroup) {
+            // Route document to participant's private DM
+            const userHasDMForDoc = hasActiveDMSession(senderParticipant);
+            if (userHasDMForDoc) {
+              await sock.sendMessage(senderParticipant, {
                 document: pdfBuffer,
                 fileName: targetDoc.file_name,
                 mimetype: 'application/pdf',
-                caption: `📄 ${tagStr}, here is *${targetDoc.title}*!\n\n*(Note: To receive files directly in your private DM in the future, please send me a 'Hi' in a private DM first so WhatsApp allows private delivery 😊)*`,
-                mentions: [mentionJid]
+                caption: `📄 *${targetDoc.title}*\n\nHere is your official document sent privately to your DM!`
+              });
+              await sock.sendPresenceUpdate('paused', senderJid);
+              await sock.sendMessage(senderJid, {
+                text: `📄 @${senderParticipant.split('@')[0]}, I've sent *${targetDoc.title}* to your DM! Check your private chat with me. 😊`,
+                mentions: [senderParticipant]
+              }, { quoted: msg });
+            } else {
+              // User has no prior DM session — prompt them to open DM first
+              await sock.sendPresenceUpdate('paused', senderJid);
+              await sock.sendMessage(senderJid, {
+                text: `📄 @${senderParticipant.split('@')[0]}, I have the *${targetDoc.title}* ready! Please send me *"Hi"* in a private DM so I can deliver the document directly to you.`,
+                mentions: [senderParticipant]
               }, { quoted: msg });
             }
           } else {
-            // Share document directly in chat (group or DM) when no explicit DM request was made
+            // In DM: send document directly
             await sock.sendMessage(senderJid, {
               document: pdfBuffer,
               fileName: targetDoc.file_name,
               mimetype: 'application/pdf',
-              caption: `📄 *${targetDoc.title}*\n\nHere is the official cohort document!`
+              caption: `📄 *${targetDoc.title}*\n\nHere is your official document uploaded directly into our chat!`
             }, { quoted: msg });
           }
 
