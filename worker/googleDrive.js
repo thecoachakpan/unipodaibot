@@ -17,15 +17,24 @@ function getDriveClient() {
   const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
 
   if (email && rawKey) {
-    const formattedKey = rawKey.replace(/\\n/g, '\n');
-    const auth = new google.auth.JWT(
-      email,
-      null,
-      formattedKey,
-      ['https://www.googleapis.com/auth/drive']
-    );
-    driveClient = google.drive({ version: 'v3', auth });
-    return driveClient;
+    try {
+      let formattedKey = rawKey.trim();
+      if ((formattedKey.startsWith('"') && formattedKey.endsWith('"')) || (formattedKey.startsWith("'") && formattedKey.endsWith("'"))) {
+        formattedKey = formattedKey.slice(1, -1);
+      }
+      formattedKey = formattedKey.replace(/\\n/g, '\n');
+
+      const auth = new google.auth.JWT(
+        email,
+        null,
+        formattedKey,
+        ['https://www.googleapis.com/auth/drive']
+      );
+      driveClient = google.drive({ version: 'v3', auth });
+      return driveClient;
+    } catch (keyErr) {
+      console.warn('[Google Drive] Service Account JWT Auth initialization error:', keyErr?.message || keyErr);
+    }
   }
 
   // Option 2: OAuth 2.0 Credentials (Client ID + Client Secret + Refresh Token)
@@ -34,13 +43,17 @@ function getDriveClient() {
   const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
   if (clientId && clientSecret && refreshToken) {
-    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-    driveClient = google.drive({ version: 'v3', auth: oauth2Client });
-    return driveClient;
+    try {
+      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+      oauth2Client.setCredentials({ refresh_token: refreshToken });
+      driveClient = google.drive({ version: 'v3', auth: oauth2Client });
+      return driveClient;
+    } catch (oauthErr) {
+      console.warn('[Google Drive] OAuth 2.0 Client initialization error:', oauthErr?.message || oauthErr);
+    }
   }
 
-  console.warn('[Google Drive] Credentials missing in environment variables.');
+  console.warn('[Google Drive] Credentials missing or invalid in environment variables.');
   return null;
 }
 
@@ -125,3 +138,35 @@ export async function downloadFromGoogleDrive(fileIdOrUrl) {
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
+
+/**
+ * Lists all non-trashed files inside the designated Google Drive folder.
+ * @returns {Promise<Array<{id: string, name: string, mimeType: string, webViewLink: string, createdTime: string, size: number}>>} Array of file objects
+ */
+export async function listGoogleDriveFiles() {
+  const drive = getDriveClient();
+  if (!drive) {
+    console.warn('[Google Drive List Warning]: Drive client is not initialized.');
+    return [];
+  }
+
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  let q = "trashed = false";
+  if (folderId) {
+    q = `'${folderId}' in parents and trashed = false`;
+  }
+
+  try {
+    const res = await drive.files.list({
+      q: q,
+      fields: 'files(id, name, mimeType, webViewLink, createdTime, size)',
+      pageSize: 100,
+      orderBy: 'name'
+    });
+    return res.data.files || [];
+  } catch (err) {
+    console.error('[Google Drive List Error]:', err?.message || err);
+    return [];
+  }
+}
+

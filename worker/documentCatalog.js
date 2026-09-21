@@ -1,9 +1,11 @@
 /**
  * PodPal BOT - Dynamic Document Catalog & Context Matcher Module
- * Maintains the registry of available/unavailable cohort documents in Supabase,
- * matches requested files against keywords and active conversation context,
+ * Maintains the registry of available/unavailable cohort documents in Supabase and Google Drive,
+ * matches requested files against keywords, actual file names, and active conversation context,
  * and prevents uploading wrong files when an unavailable document is requested.
  */
+
+import { listGoogleDriveFiles } from './googleDrive.js';
 
 // Default Fallback Document Registry
 export const DEFAULT_DOCUMENT_CATALOG = [
@@ -16,6 +18,16 @@ export const DEFAULT_DOCUMENT_CATALOG = [
     category: 'General',
     is_available: true,
     description: 'Official METI UniPods AI Innovation Programme rules, timelines, track details, and FAQs.'
+  },
+  {
+    doc_key: 'wadhwani_onboarding_recording',
+    title: 'Wadhwani Platform Onboarding Welcome Session Stream Recording',
+    file_name: 'Wadhwani_Platform_Onboarding_Session_Recording.link',
+    drive_file_id: null,
+    keywords: ['wadhwani onboarding recording', 'wadhwani welcome recording', 'wadhwani session recording', 'wadhwani recording link', 'wadhwani video link', 'wadhwani onboarding video'],
+    category: 'Wadhwani',
+    is_available: true,
+    description: 'Official video recording stream link for the Wadhwani Platform Onboarding Welcome Session.'
   },
   {
     doc_key: 'wadhwani_template',
@@ -50,26 +62,77 @@ export const DEFAULT_DOCUMENT_CATALOG = [
 ];
 
 /**
- * Fetches current catalog entries from Supabase `document_catalog` table.
+ * Fetches current catalog entries from Supabase `document_catalog` table AND live Google Drive folder files.
  */
 export async function getDocumentCatalog(supabase) {
-  try {
-    const { data, error } = await supabase
-      .from('document_catalog')
-      .select('*')
-      .order('is_available', { ascending: false });
+  let catalog = [];
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('document_catalog')
+        .select('*')
+        .order('is_available', { ascending: false });
 
-    if (!error && data && data.length > 0) {
-      return data;
+      if (!error && data && data.length > 0) {
+        catalog = [...data];
+      }
+    } catch (err) {
+      console.warn('[DocumentCatalog] Supabase catalog fetch warning, using default registry:', err?.message || err);
     }
-  } catch (err) {
-    console.warn('[DocumentCatalog] Supabase catalog fetch warning, using default registry:', err?.message || err);
   }
-  return DEFAULT_DOCUMENT_CATALOG;
+
+  if (!catalog || catalog.length === 0) {
+    catalog = [...DEFAULT_DOCUMENT_CATALOG];
+  }
+
+  // Live Google Drive Discovery: Fetch live files from Google Drive folder
+  try {
+    const driveFiles = await listGoogleDriveFiles();
+    if (driveFiles && driveFiles.length > 0) {
+      for (const file of driveFiles) {
+        const fileKey = file.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+        const existsIndex = catalog.findIndex(d => d.drive_file_id === file.id || d.doc_key === fileKey);
+
+        const baseName = file.name.replace(/\.[^/.]+$/, "");
+        const cleanTitle = baseName.replace(/[_\-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const fileKeywords = Array.from(new Set([
+          ...baseName.toLowerCase().split(/[\s_\-\.\,]+/).filter(w => w.length >= 2),
+          file.name.toLowerCase(),
+          baseName.toLowerCase()
+        ]));
+
+        const driveEntry = {
+          doc_key: fileKey,
+          title: cleanTitle,
+          file_name: file.name,
+          drive_file_id: file.id,
+          keywords: fileKeywords,
+          category: /wadhwani/i.test(file.name) ? 'Wadhwani' : (/mit/i.test(file.name) ? 'MIT' : 'General'),
+          is_available: true,
+          description: `Google Drive Document: ${file.name}`
+        };
+
+        if (existsIndex >= 0) {
+          // Update drive_file_id and is_available status for existing entry
+          catalog[existsIndex].drive_file_id = file.id;
+          catalog[existsIndex].is_available = true;
+          catalog[existsIndex].file_name = file.name;
+          catalog[existsIndex].keywords = Array.from(new Set([...catalog[existsIndex].keywords, ...fileKeywords]));
+        } else {
+          // Add newly discovered Google Drive file to catalog
+          catalog.unshift(driveEntry);
+        }
+      }
+    }
+  } catch (driveErr) {
+    console.warn('[DocumentCatalog] Live Drive folder scan warning:', driveErr?.message || driveErr);
+  }
+
+  return catalog;
 }
 
 /**
- * Matches a user's prompt and conversation context against the document catalog.
+ * Matches a user's prompt and conversation context against the dynamic document catalog & Google Drive files.
  *
  * @param {string} promptText - Inbound user prompt
  * @param {string} conversationContext - Preceding chat turns text
@@ -85,63 +148,108 @@ export async function matchRequestedDocument(promptText, conversationContext = '
   const availableDocs = catalog.filter(d => d.is_available && d.drive_file_id);
   const unavailableDocs = catalog.filter(d => !d.is_available);
 
-  // 1. Direct Keyword Matching on Inbound Prompt
+  // 1. Specific Title / File-Name Search Engine (Score each document based on matching keywords)
+  let bestMatchDoc = null;
+  let highestScore = 0;
+
   for (const doc of catalog) {
-    const matchesKeyword = doc.keywords.some(kw => promptLower.includes(kw));
-    if (matchesKeyword) {
-      if (doc.is_available && doc.drive_file_id) {
-        return {
-          status: 'MATCHED_AVAILABLE',
-          doc,
-          matchedKeyword: true
-        };
-      } else {
-        return {
-          status: 'MATCHED_UNAVAILABLE',
-          doc,
-          requestedTitle: doc.title,
-          availableDocs
-        };
+    let score = 0;
+    const titleLower = (doc.title || '').toLowerCase();
+    const fileNameLower = (doc.file_name || '').toLowerCase();
+
+    // Check key word matches in prompt
+    for (const kw of doc.keywords) {
+      if (kw.length >= 3 && promptLower.includes(kw)) {
+        score += (kw === titleLower || kw === fileNameLower) ? 10 : 3;
       }
+    }
+
+    // Direct substring match on document title or file name
+    const titleWords = titleLower.split(/[\s_\-\.]+/).filter(w => w.length >= 3 && !['pdf', 'doc', 'file', 'the', 'and', 'for'].includes(w));
+    let matchingTitleWords = 0;
+    for (const tw of titleWords) {
+      if (promptLower.includes(tw)) {
+        matchingTitleWords++;
+      }
+    }
+
+    if (matchingTitleWords > 0) {
+      score += matchingTitleWords * 5;
+    }
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestMatchDoc = doc;
     }
   }
 
-  // 2. Check if user explicitly asked for an unavailable document by name/category
-  if (promptLower.includes('wadhwani') && (promptLower.includes('template') || promptLower.includes('canvas') || promptLower.includes('doc'))) {
+  // If a specific document scored high (Score >= 5), return it directly!
+  if (bestMatchDoc && highestScore >= 5) {
+    if (bestMatchDoc.is_available && bestMatchDoc.drive_file_id) {
+      return {
+        status: 'MATCHED_AVAILABLE',
+        doc: bestMatchDoc,
+        score: highestScore,
+        matchedKeyword: true
+      };
+    } else {
+      return {
+        status: 'MATCHED_UNAVAILABLE',
+        doc: bestMatchDoc,
+        requestedTitle: bestMatchDoc.title,
+        availableDocs
+      };
+    }
+  }
+
+  // 2. Fallback check for explicit unavailable requests by name/category
+  if (promptLower.includes('wadhwani') && (promptLower.includes('template') || promptLower.includes('canvas'))) {
     const wDoc = catalog.find(d => d.doc_key === 'wadhwani_template') || { title: 'Wadhwani Business Model Template' };
     return { status: 'MATCHED_UNAVAILABLE', doc: wDoc, requestedTitle: wDoc.title, availableDocs };
   }
 
-  if (promptLower.includes('mit') && (promptLower.includes('syllabus') || promptLower.includes('curriculum') || promptLower.includes('pdf'))) {
+  if (promptLower.includes('mit') && (promptLower.includes('syllabus') || promptLower.includes('curriculum'))) {
     const mDoc = catalog.find(d => d.doc_key === 'mit_syllabus') || { title: 'MIT Universal AI Syllabus' };
     return { status: 'MATCHED_UNAVAILABLE', doc: mDoc, requestedTitle: mDoc.title, availableDocs };
   }
 
-  if ((promptLower.includes('workplan') || promptLower.includes('budget')) && (promptLower.includes('template') || promptLower.includes('doc'))) {
+  if ((promptLower.includes('workplan') || promptLower.includes('budget')) && (promptLower.includes('template'))) {
     const eDoc = catalog.find(d => d.doc_key === 'workplan_template') || { title: 'Addis Ababa Costed Workplan Template' };
     return { status: 'MATCHED_UNAVAILABLE', doc: eDoc, requestedTitle: eDoc.title, availableDocs };
   }
 
-  // 3. Conversational Context Match for Generic Follow-Ups (e.g. "send me the document", "show me the source")
-  const isGenericDocumentRequest = /(send|upload|get|download|share|give|need|attach|see|show).*(pdf|doc|document|file|handbook|guide|source)/i.test(promptLower) ||
+  // 3. Generic Document Request (e.g. "send me the PDF" / "download document")
+  const isGenericDocumentRequest = /(send|upload|get|download|share|give|need|attach|see|show|provide|drop|pass).*(pdf|doc|document|file|handbook|guide|source)/i.test(promptLower) ||
                                    /(pdf|document|handbook|source)\b/i.test(promptLower);
 
-  if (isGenericDocumentRequest && conversationContext) {
-    // If context discusses general cohort rules, timelines, FAQs, or METI programme overview:
-    const isFaqContext = /(mit|wadhwani|ethiopia|cohort|track|deadline|rule|faq|program|schedule|bootcamp|unipod|general|overview)/i.test(contextLower);
-    if (isFaqContext) {
-      const faqDoc = availableDocs.find(d => d.doc_key === 'faq_pack') || availableDocs[0];
-      if (faqDoc) {
-        return {
-          status: 'MATCHED_AVAILABLE',
-          doc: faqDoc,
-          matchedContext: true
-        };
+  if (isGenericDocumentRequest) {
+    // Check if prompt or context mentions specific track keywords
+    if (/wadhwani/i.test(fullText)) {
+      const wadhwaniDoc = availableDocs.find(d => /wadhwani/i.test(d.title) || /wadhwani/i.test(d.file_name));
+      if (wadhwaniDoc) {
+        return { status: 'MATCHED_AVAILABLE', doc: wadhwaniDoc, matchedContext: true };
       }
+    }
+
+    if (/mit/i.test(fullText)) {
+      const mitDoc = availableDocs.find(d => /mit/i.test(d.title) || /mit/i.test(d.file_name));
+      if (mitDoc) {
+        return { status: 'MATCHED_AVAILABLE', doc: mitDoc, matchedContext: true };
+      }
+    }
+
+    // Default to first available document (or FAQ pack)
+    const fallbackDoc = availableDocs.find(d => d.doc_key === 'faq_pack') || availableDocs[0];
+    if (fallbackDoc) {
+      return {
+        status: 'MATCHED_AVAILABLE',
+        doc: fallbackDoc,
+        matchedContext: true
+      };
     }
   }
 
-  // 4. Cold, Vague Request (No explicit keywords matched and no active program context)
+  // 4. Cold, Vague Request
   return {
     status: 'VAGUE_COLD_REQUEST',
     availableDocs

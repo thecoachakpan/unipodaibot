@@ -54,10 +54,13 @@ Note: Always reference timezones: CAT (UTC+2), WAT (UTC+1), EAT (UTC+3), GMT.
   {
     course_name: 'Wadhwani',
     source_type: 'course_guideline',
-    content: `### Wadhwani Ignite Track Guidelines
-- **Curriculum**: 14-week structured business model development curriculum.
-- **Platform Name**: "Ignite Full - Africa".
-- **Module 1 Deliverable**: Problem statement strictly under 350 characters (refined to 150 characters) identifying who faces the problem and its root cause without describing the solution.`
+    link_url: 'https://wadhwanifoundation-my.sharepoint.com/personal/charles_bolton_wadhwanifoundation_org/_layouts/15/stream.aspx?id=%2Fpersonal%2Fcharles%5Fbolton%5Fwadhwanifoundation%5Forg%2FDocuments%2FRecordings%2FUNDP%20UniPod%20AI%20Program%20%2D%20Wadhwani%20Platform%20Onboarding%20%28Welcome%20Session%29%2D20260910%5F150209%2DMeeting%20Recording%2Emp4&nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJTdHJlYW1XZWJBcHAiLCJyZWZlcnJhbFZpZXciOiJTaGFyZURpYWxvZy1MaW5rIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXcifX0&ga=1&referrer=StreamWebApp%2EWeb&referrerScenario=AddressBarCopied%2Eview%2E1d92374b%2Df89e%2D42e7%2D810a%2D7edb8c9a3b41',
+    content: `### Wadhwani Ignite Track Guidelines & Welcome Onboarding
+- **Curriculum**: 12-week structured business model development curriculum (Tuesdays & Thursdays @ 3:00 PM CAT).
+- **Platform Name**: "Ignite Full - Africa" (Sign up on NEN portal: https://web.nen.wfglobal.org/en/login?mode=createAccount&source=student).
+- **Mandatory Tasks (Due before Tue 15 Sept)**: Complete Baseline Survey in Module 0 and Passion CV in Module 1 (disregard South Africa tag). Register as individuals; venture/team creation will be done in class.
+- **Module 1 Deliverable**: Problem statement strictly under 350 characters identifying who faces the problem and its root cause without describing the solution.
+- **Official Session Recording**: [Watch Onboarding Video Recording](https://wadhwanifoundation-my.sharepoint.com/personal/charles_bolton_wadhwanifoundation_org/_layouts/15/stream.aspx?id=%2Fpersonal%2Fcharles%5Fbolton%5Fwadhwanifoundation%5Forg%2FDocuments%2FRecordings%2FUNDP%20UniPod%20AI%20Program%20%2D%20Wadhwani%20Platform%20Onboarding%20%28Welcome%20Session%29%2D20260910%5F150209%2DMeeting%20Recording%2Emp4&nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJTdHJlYW1XZWJBcHAiLCJyZWZlcnJhbFZpZXciOiJTaGFyZURpYWxvZy1MaW5rIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXcifX0&ga=1&referrer=StreamWebApp%2EWeb&referrerScenario=AddressBarCopied%2Eview%2E1d92374b%2Df89e%2D42e7%2D810a%2D7edb8c9a3b41)`
   },
   {
     course_name: 'General',
