@@ -12,7 +12,7 @@ export const DEFAULT_DOCUMENT_CATALOG = [
     title: 'METI UniPods AI Innovation Programme (Cohort 1) — Official FAQ Pack',
     file_name: 'METI_UniPods_AI_Innovation_Programme_FAQ_Pack.pdf',
     drive_file_id: '1XxGcCOvLSwylMJo_YqPmclr1y1vCag5o',
-    keywords: ['faq', 'info pack', 'information pack', 'faq pack', 'cohort 1', 'programme guide', 'official doc', 'official faq', 'overview', 'handbook', 'general rules', 'faq document'],
+    keywords: ['faq', 'info pack', 'information pack', 'faq pack', 'cohort 1', 'programme guide', 'official doc', 'official faq', 'overview', 'handbook', 'general rules', 'faq document', 'program pdf', 'programme pdf', 'program doc', 'programme doc', 'program document', 'programme document', 'cohort pdf', 'meti pdf', 'unipod pdf', 'pdf', 'program file', 'programme file', 'program guide', 'the pdf', 'the document', 'the file', 'the handbook'],
     category: 'General',
     is_available: true,
     description: 'Official METI UniPods AI Innovation Programme rules, timelines, track details, and FAQs.'

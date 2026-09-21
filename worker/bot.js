@@ -209,13 +209,13 @@ const FACILITATOR_MAP = [
   { name: 'munira', jid: '250786387244@s.whatsapp.net' }
 ];
 
-const FACILITATOR_NUMBERS = [
-  '2349093696284', // Victor Akpan
-  '250783188655', // Diane
-  '27793565520',  // Charles Bolton
-  '263774094822', // Gift Ntuli
-  '250789355992', // Jeovaire Umukundwa
-  '250786387244'  // Munira Umugwaneza
+const FACILITATOR_CORE_NUMBERS = [
+  '9093696284', // Victor Akpan (+234 909 369 6284 / 2349093696284 / 23409093696284)
+  '783188655', // Diane (+250 783 188 655)
+  '793565520', // Charles Bolton (+27 79 356 5520)
+  '774094822', // Gift Ntuli (+263 77 409 4822)
+  '789355992', // Jeovaire Umukundwa (+250 78 935 5992)
+  '786387244'  // Munira Umugwaneza (+250 78 638 7244)
 ];
 
 /**
@@ -227,12 +227,23 @@ function getCleanPhoneNumber(jidStr) {
 }
 
 /**
+ * Helper for WhatsApp native @tag mentions formatted clean without device suffixes.
+ */
+function getMentionDetails(jidStr) {
+  const cleanNum = getCleanPhoneNumber(jidStr);
+  const mentionJid = cleanNum ? `${cleanNum}@s.whatsapp.net` : jidStr;
+  const tagStr = cleanNum ? `@${cleanNum}` : '@User';
+  return { mentionJid, tagStr, cleanNum };
+}
+
+/**
  * Robustly checks if a sender JID or participant JID belongs to a verified cohort facilitator.
  */
 function isAdminParticipant(jidStr) {
   if (!jidStr) return false;
   const num = getCleanPhoneNumber(jidStr);
-  return FACILITATOR_NUMBERS.includes(num);
+  if (!num) return false;
+  return FACILITATOR_CORE_NUMBERS.some(core => num.endsWith(core));
 }
 
 /**
@@ -249,7 +260,7 @@ function getParticipantTimezone(jidStr) {
   if (cleanNum.startsWith('250') || cleanNum.startsWith('263') || cleanNum.startsWith('27') || cleanNum.startsWith('260') || cleanNum.startsWith('265') || cleanNum.startsWith('258')) {
     return { tzName: 'CAT', utcOffset: 2, label: 'CAT (UTC+2)' };
   }
-  if (cleanNum.startsWith('234') || cleanNum.startsWith('237') || cleanNum.startsWith('241') || cleanNum.startsWith('242') || cleanNum.startsWith('243') || cleanNum.startsWith('229') || cleanNum.startsWith('228') || cleanNum.startsWith('225') || cleanNum.startsWith('221') || cleanNum.startsWith('231')) {
+  if (cleanNum.startsWith('234') || cleanNum.startsWith('237') || cleanNum.startsWith('241') || cleanNum.startsWith('242') || cleanNum.startsWith('243') || cleanNum.startsWith('229') || cleanNum.startsWith('228') || cleanNum.startsWith('225') || cleanNum.startsWith('221') || cleanNum.startsWith('231') || cleanNum.startsWith('090') || cleanNum.startsWith('080') || cleanNum.startsWith('070') || cleanNum.startsWith('081') || cleanNum.startsWith('091') || cleanNum.startsWith('909') || cleanNum.startsWith('803') || cleanNum.startsWith('802') || cleanNum.startsWith('818') || cleanNum.startsWith('805') || cleanNum.startsWith('807') || cleanNum.startsWith('703') || cleanNum.startsWith('706')) {
     return { tzName: 'WAT', utcOffset: 1, label: 'WAT (UTC+1)' };
   }
   if (cleanNum.startsWith('233') || cleanNum.startsWith('220') || cleanNum.startsWith('232')) {
@@ -1039,7 +1050,6 @@ async function startBot() {
     // 3. Mentions of a facilitator/admin IN AN ACTUAL QUESTION (mentionsAdmin && isQuestionOrInquiry)
     // 4. Fresh unquoted program-related questions (isQuestionOrInquiry when NOT replying to another participant)
     const isQuotedPeerReply = isGroup && !isQuotedBotReply && !!contextInfo?.quotedMessage;
-    const isQuotedAnyReply = isGroup && !!contextInfo?.quotedMessage;
     const isQuestionMentioningAdmin = mentionsAdmin && isQuestionOrInquiry;
     const isCommandOrAction = cleanPrompt.startsWith('!') || /(translate|traduire|traduis|send.*privately|send.*dm|summarize|remind|poll|event|post)/i.test(cleanLower);
 
@@ -1048,14 +1058,14 @@ async function startBot() {
 
       // Group chat processing triggers:
       // 1. Tagged or mentioned (@bot, !ask, podpal, bot, or native @mention)
-      // 2. Direct replies to bot messages OR quote replies to peer/admin messages
+      // 2. Direct replies to bot messages
       // 3. Questions mentioning facilitators/admins
-      // 4. Fresh unquoted program-related questions
+      // 4. Fresh unquoted program-related questions (or quote replies forming program inquiries)
       // 5. Multimodal messages (images, audio/voice notes)
-      // 6. Explicit commands (!poll, !event, !post) or translation/DM requests
+      // 6. Explicit commands (!poll, !event, !post) or translation/DM/reminder requests
       const isMultimodalMessage = isImage || isAudio;
       const isFreshQuestion = isQuestionOrInquiry;
-      const shouldRespondInGroup = isTagged || isQuestionMentioningAdmin || isQuotedBotReply || isQuotedAnyReply || isFreshQuestion || isMultimodalMessage || isCommandOrAction;
+      const shouldRespondInGroup = isTagged || isQuestionMentioningAdmin || isQuotedBotReply || isFreshQuestion || isMultimodalMessage || isCommandOrAction;
 
       if (!shouldRespondInGroup) return;
     }
@@ -1343,7 +1353,7 @@ async function startBot() {
     // Detects conversational requests like "create a poll about...", "set a reminder for...", "schedule an event..."
     const isPollIntent = canCreatePollOrEvent && /\b(create|make|start|launch|set up|setup|send|post)\b.{0,15}\b(poll|vote|survey|voting)\b/i.test(cleanLower);
     const isEventIntent = canCreatePollOrEvent && /\b(create|make|schedule|set|plan|organize|set up|setup)\b.{0,15}\b(event|meeting|session|call|announcement)\b/i.test(cleanLower);
-    const isReminderIntent = canCreatePollOrEvent && /\b(remind|set.{0,6}reminder|remind me|remind us|remind the group|remind everyone|send.{0,6}reminder)\b/i.test(cleanLower);
+    const isReminderIntent = /\b(remind|set.{0,6}reminder|remind me|remind us|remind the group|remind everyone|send.{0,6}reminder)\b/i.test(cleanLower);
 
     if (isPollIntent || isEventIntent || isReminderIntent) {
       try {
@@ -1362,10 +1372,11 @@ Cohort Timezone Reference: Primary timezone is CAT (UTC+2). WAT is UTC+1. EAT is
 Rules:
 - For polls: Output {"type":"poll","question":"...","options":["Option 1","Option 2",...]}. Must have 2-12 options.
 - For events: Output {"type":"event","title":"...","date":"ISO8601 date string","offsets":[...]}. Extract date/time from user message or quoted text. If user specified reminder offsets (e.g. 15m, 1h), extract them into offsets array. If no offsets requested, use [0] (remind at event time).
-- For reminders: Output {"type":"reminder","title":"...","date":"ISO8601 date string","offsets":[...]}.
+- For reminders: Output {"type":"reminder","title":"...","date":"ISO8601 date string","offsets":[0]}.
+  - Calculate target "date" in ISO8601 when the reminder message MUST be delivered to the user.
+  - Set "offsets" to [0]. EVERY user reminder MUST have ONLY ONE offset [0] at the target delivery time. NEVER output multiple offsets or default [30, 5].
   - If user requests a reminder at a specific time or relative delay (e.g. "remind me in 10 minutes", "remind me at 3:00 PM"), calculate target "date" in ISO8601, and set "offsets" to [0].
-  - If user quotes a meeting announcement and says "remind me 5 minutes to the time", calculate meeting start "date" in ISO8601, and set "offsets" to [5].
-  - If user specifies no offsets, set "offsets" to [0]. NEVER output [30, 5] as default unless explicitly requested.
+  - If user quotes a meeting announcement for 3:00 PM and says "remind me 5 minutes before", calculate target "date" as 2:55 PM in ISO8601, and set "offsets" to [0].
 - MISSING DATE/TIME RULE: If the user asks for a reminder/event but provides NO date or time in their message AND no date/time exists in quoted context, output {"type":"clarify","message":"⏰ When would you like me to remind you? Please specify a time or delay (e.g. 'in 15 minutes', 'tomorrow at 3 PM', or quote a meeting announcement!)."}.
 - If the user message is too vague, output {"type":"clarify","message":"...a short clarifying question..."}.
 
@@ -1423,10 +1434,10 @@ Respond with ONLY the JSON object, nothing else.`;
         if (parsed.type === 'event' || parsed.type === 'reminder') {
           const title = parsed.title || 'Cohort Reminder';
           const dateStr = parsed.date || new Date(Date.now() + 5 * 60 * 1000).toISOString();
-          const offsets = (Array.isArray(parsed.offsets) && parsed.offsets.length > 0) ? parsed.offsets : [0];
+          const offsets = parsed.type === 'reminder' ? [0] : ((Array.isArray(parsed.offsets) && parsed.offsets.length > 0) ? parsed.offsets : [0]);
           
           // In group chats: target group_jid = 'all' so reminder is delivered privately to participant DM
-          const targetGroupJid = isGroup ? 'all' : 'all';
+          const targetGroupJid = 'all';
           await createScheduledReminder(senderJid, title, dateStr, offsets, targetGroupJid);
           const eventDate = new Date(dateStr);
           
@@ -1520,26 +1531,28 @@ Respond with ONLY the JSON object, nothing else.`;
           const explicitDMRequested = /(in dm|to my dm|in private|privately|send me in dm|send to my dm|send this to me|send privately|dm me|send to dm|send to me privately)/i.test(cleanLower);
 
           if (isGroup && explicitDMRequested) {
-            // Route document to participant's private DM ONLY when explicitly requested
-            const userHasDMForDoc = hasActiveDMSession(senderParticipant);
-            if (userHasDMForDoc) {
-              await sock.sendMessage(senderParticipant, {
+            // Route document directly to participant's private DM
+            const targetDmJid = `${getCleanPhoneNumber(senderParticipant)}@s.whatsapp.net`;
+            const { mentionJid, tagStr } = getMentionDetails(senderParticipant);
+            try {
+              await sock.sendMessage(targetDmJid, {
                 document: pdfBuffer,
                 fileName: targetDoc.file_name,
                 mimetype: 'application/pdf',
-                caption: `📄 *${targetDoc.title}*\n\nHere is your official document sent privately to your DM!`
+                caption: `📄 *${targetDoc.title}*\n\nHere is your official document delivered privately to your DM!`
               });
               await sock.sendPresenceUpdate('paused', senderJid);
               await sock.sendMessage(senderJid, {
-                text: `📄 @${senderParticipant.split('@')[0]}, I've sent *${targetDoc.title}* to your DM as requested! Check your private chat with me. 😊`,
-                mentions: [senderParticipant]
+                text: `📄 ${tagStr}, I've sent *${targetDoc.title}* directly to your private DM! Check your chat with me. 😊`,
+                mentions: [mentionJid]
               }, { quoted: msg });
-            } else {
-              // User has no prior DM session — prompt them to open DM first
-              await sock.sendPresenceUpdate('paused', senderJid);
+            } catch (dmSendErr) {
+              console.error('[Document DM Direct Delivery Error]:', dmSendErr);
               await sock.sendMessage(senderJid, {
-                text: `📄 @${senderParticipant.split('@')[0]}, I have the *${targetDoc.title}* ready! Please send me *"Hi"* in a private DM so I can deliver the document directly to you.`,
-                mentions: [senderParticipant]
+                document: pdfBuffer,
+                fileName: targetDoc.file_name,
+                mimetype: 'application/pdf',
+                caption: `📄 *${targetDoc.title}*\n\nHere is the official cohort document!`
               }, { quoted: msg });
             }
           } else {
