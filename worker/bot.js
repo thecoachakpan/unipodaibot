@@ -1284,21 +1284,25 @@ async function startBot() {
         await sock.sendPresenceUpdate('composing', senderJid);
         const intentType = isPollIntent ? 'poll' : isEventIntent ? 'event' : 'reminder';
 
+        const nowIso = new Date().toISOString();
         const structuredPrompt = `The user wants to create a ${intentType}. Parse their request and output ONLY a valid JSON object (no markdown, no code fences, no explanation).
 
 User message: "${cleanPrompt}"
 ${quotedMessageText ? `Quoted message context: "${quotedMessageText}"` : ''}
 
+Current UTC time: ${nowIso}
+Cohort Timezone Reference: Primary timezone is CAT (UTC+2). WAT is UTC+1. EAT is UTC+3.
+
 Rules:
 - For polls: Output {"type":"poll","question":"...","options":["Option 1","Option 2",...]}. Must have 2-12 options.
 - For events: Output {"type":"event","title":"...","date":"ISO8601 date string","offsets":[...]}. Extract date/time from user message or quoted text. If user specified reminder offsets (e.g. 15m, 1h), extract them into offsets array. If no offsets requested, use [0] (remind at event time).
 - For reminders: Output {"type":"reminder","title":"...","date":"ISO8601 date string","offsets":[...]}.
-  - If user requests a reminder at a specific time or relative delay (e.g. "remind me in 5 minutes", "remind me at 6:40 PM"), set target "date" to that exact target time, and "offsets" to [0].
-  - If user quotes a meeting and says "remind me 5 minutes to the time", set target "date" to meeting start time, and "offsets" to [5].
-  - If user specifies no offsets, set "offsets" to [0]. NEVER output [30, 5] as default unless explicitly requested by user.
-- If the user message is too vague to create any of the above, output {"type":"clarify","message":"...a short clarifying question..."}.
+  - If user requests a reminder at a specific time or relative delay (e.g. "remind me in 10 minutes", "remind me at 3:00 PM"), calculate target "date" in ISO8601, and set "offsets" to [0].
+  - If user quotes a meeting announcement and says "remind me 5 minutes to the time", calculate meeting start "date" in ISO8601, and set "offsets" to [5].
+  - If user specifies no offsets, set "offsets" to [0]. NEVER output [30, 5] as default unless explicitly requested.
+- MISSING DATE/TIME RULE: If the user asks for a reminder/event but provides NO date or time in their message AND no date/time exists in quoted context, output {"type":"clarify","message":"⏰ When would you like me to remind you? Please specify a time or delay (e.g. 'in 15 minutes', 'tomorrow at 3 PM', or quote a meeting announcement!)."}.
+- If the user message is too vague, output {"type":"clarify","message":"...a short clarifying question..."}.
 
-Current time: ${new Date().toISOString()}
 Respond with ONLY the JSON object, nothing else.`;
 
         const systemInstruction = 'You are a structured data extraction assistant. Output ONLY valid JSON. No markdown, no code fences, no explanation text.';
@@ -1322,14 +1326,14 @@ Respond with ONLY the JSON object, nothing else.`;
           parsed = JSON.parse(jsonStr);
         } catch {
           await sock.sendPresenceUpdate('paused', senderJid);
-          await sock.sendMessage(senderJid, { text: `I understood you want to create a ${intentType}, but I need a bit more detail. Could you provide the specific question/title and options?` }, { quoted: msg });
+          await sock.sendMessage(senderJid, { text: `I understood you want to create a ${intentType}, but I need a bit more detail. Could you provide the specific topic and time?` }, { quoted: msg });
           return;
         }
 
         // Handle parsed intent
         if (parsed.type === 'clarify') {
           await sock.sendPresenceUpdate('paused', senderJid);
-          await sock.sendMessage(senderJid, { text: parsed.message || `Could you provide more details for the ${intentType}?` }, { quoted: msg });
+          await sock.sendMessage(senderJid, { text: parsed.message || `Could you specify when you would like to be reminded?` }, { quoted: msg });
           return;
         }
 
@@ -1358,19 +1362,23 @@ Respond with ONLY the JSON object, nothing else.`;
           await createScheduledReminder(senderJid, title, dateStr, offsets, isGroup ? senderJid : 'all');
           const eventDate = new Date(dateStr);
           
+          const catTimeStr = new Date(eventDate.getTime() + 2 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 16) + ' CAT';
+
           const hasExact = offsets.includes(0);
           const beforeArr = offsets.filter(o => o > 0);
           let offsetDisplay = '';
           if (beforeArr.length > 0) {
             const listStr = beforeArr.map(o => o >= 60 ? `${o/60}h` : `${o}m`).join(', ') + ' before';
-            offsetDisplay = hasExact ? `${listStr} & at event time` : `${listStr}`;
+            offsetDisplay = hasExact ? `${listStr} & at exact time` : `${listStr}`;
           } else {
-            offsetDisplay = 'At scheduled time';
+            offsetDisplay = 'At exact scheduled time';
           }
+
+          const targetLocationNotice = isGroup ? 'I will post the reminder to the group!' : 'I will send you a private WhatsApp DM when it\'s time!';
 
           await sock.sendPresenceUpdate('paused', senderJid);
           await sock.sendMessage(senderJid, {
-            text: `✅ *${parsed.type === 'event' ? 'Event' : 'Reminder'} Scheduled!*\n\n📌 *${title}*\n📅 ${eventDate.toLocaleTimeString()} (${eventDate.toDateString()})\n🔔 Delivery: ${offsetDisplay}\n\nI will send you a DM when it's time!`
+            text: `✅ *${parsed.type === 'event' ? 'Event' : 'Reminder'} Scheduled!*\n\n📌 *Topic*: ${title}\n📅 *Time*: ${catTimeStr}\n🔔 *Alert Timing*: ${offsetDisplay}\n\n${targetLocationNotice}`
           }, { quoted: msg });
           return;
         }
