@@ -1053,8 +1053,8 @@ async function startBot() {
       const canCreateInDM = !isGroup;
       if (canCreateInGroup || canCreateInDM) {
         try {
-          await createScheduledReminder(senderJid, cleanPrompt.replace('!remind', '').trim(), new Date(Date.now() + 30 * 60 * 1000).toISOString(), [30, 5]);
-          await sock.sendMessage(senderJid, { text: '✅ Scheduled group reminder created and saved to database!' }, { quoted: msg });
+          await createScheduledReminder(senderJid, cleanPrompt.replace('!remind', '').trim(), new Date(Date.now() + 5 * 60 * 1000).toISOString(), [0], isGroup ? senderJid : 'all');
+          await sock.sendMessage(senderJid, { text: '✅ Scheduled reminder created! You will be notified at the scheduled time.' }, { quoted: msg });
           return;
         } catch (err) {
           await sock.sendMessage(senderJid, { text: '⚠️ Failed to schedule reminder. Ensure date/time format is valid.' }, { quoted: msg });
@@ -1197,16 +1197,16 @@ async function startBot() {
         if (eventMatch) {
           const eventTitle = eventMatch[1].trim();
           const eventDateStr = eventMatch[2].trim();
-          const offsetStr = eventMatch[3]?.trim() || '30m,5m';
+          const offsetStr = eventMatch[3]?.trim();
 
-          // Parse offsets (30m, 1h, 5m -> [30, 60, 5])
-          const offsets = offsetStr.split(/[,\s]+/).map(o => {
+          // Parse offsets (30m, 1h, 5m -> [30, 60, 5]). Default to [0] if omitted.
+          const offsets = offsetStr ? offsetStr.split(/[,\s]+/).map(o => {
             const hrs = o.match(/(\d+)h/i);
             const mins = o.match(/(\d+)m/i);
             if (hrs) return parseInt(hrs[1]) * 60;
             if (mins) return parseInt(mins[1]);
-            return parseInt(o) || 30;
-          }).filter(n => n > 0);
+            return parseInt(o) || 0;
+          }).filter(n => n >= 0) : [0];
 
           // Parse date
           let eventDate;
@@ -1218,17 +1218,25 @@ async function startBot() {
             return;
           }
 
-          await createScheduledReminder(senderJid, eventTitle, eventDate.toISOString(), offsets.length > 0 ? offsets : [30, 5]);
-          const offsetDisplay = offsets.map(o => o >= 60 ? `${o/60}h` : `${o}m`).join(', ');
+          await createScheduledReminder(senderJid, eventTitle, eventDate.toISOString(), offsets, isGroup ? senderJid : 'all');
+          const hasExact = offsets.includes(0);
+          const beforeArr = offsets.filter(o => o > 0);
+          let offsetDisplay = '';
+          if (beforeArr.length > 0) {
+            const listStr = beforeArr.map(o => o >= 60 ? `${o/60}h` : `${o}m`).join(', ') + ' before';
+            offsetDisplay = hasExact ? `${listStr} & at event time` : `${listStr}`;
+          } else {
+            offsetDisplay = 'At scheduled event time';
+          }
           await sock.sendMessage(senderJid, {
-            text: `✅ *Event Scheduled!*\n\n📌 *${eventTitle}*\n📅 ${eventDate.toUTCString()}\n🔔 Reminders: ${offsetDisplay} before\n\nI will send reminders to the group automatically!`
+            text: `✅ *Event Scheduled!*\n\n📌 *${eventTitle}*\n📅 ${eventDate.toLocaleTimeString()} (${eventDate.toDateString()})\n🔔 Delivery: ${offsetDisplay}`
           }, { quoted: msg });
           return;
         }
 
         // If parsing failed, show usage help
         await sock.sendMessage(senderJid, {
-          text: `📅 *Event Creation Format*:\n\n\`!event "Event Title" at 2026-10-01T15:00:00 remind 30m,5m\`\n\nExample:\n\`!event "Weekly Open Hour" at 2026-10-03T15:00:00 remind 1h,30m,5m\`\n\n• Date format: ISO 8601 or natural (Oct 3, 2026 3:00 PM)\n• Remind offsets: 5m, 30m, 1h, 12h (comma-separated)`
+          text: `📅 *Event Creation Format*:\n\n\`!event "Event Title" at 2026-10-01T15:00:00 remind 30m,5m\`\n\nExample:\n\`!event "Weekly Open Hour" at 2026-10-03T15:00:00 remind 1h,30m,5m\`\n\n• Date format: ISO 8601 or natural (Oct 3, 2026 3:00 PM)\n• Remind offsets: 5m, 30m, 1h (comma-separated, optional)`
         }, { quoted: msg });
         return;
       } catch (err) {
@@ -1256,8 +1264,11 @@ ${quotedMessageText ? `Quoted message context: "${quotedMessageText}"` : ''}
 
 Rules:
 - For polls: Output {"type":"poll","question":"...","options":["Option 1","Option 2",...]}. Must have 2-12 options.
-- For events: Output {"type":"event","title":"...","date":"ISO8601 date string","offsets":[30,5]}. Extract date/time from user message or quoted text. Extract requested reminder offsets in minutes (e.g. [60, 5]). Default offsets if unspecified: [30, 5].
-- For reminders: Output {"type":"reminder","title":"...","date":"ISO8601 date string","offsets":[5]}. Extract event/meeting date/time from user message or quoted context text. Extract requested reminder offset minutes into array (e.g. "5 minutes to the time" -> offsets: [5], "30m and 5m before" -> offsets: [30, 5]). If no date specified in message or quote, use 30 minutes from now.
+- For events: Output {"type":"event","title":"...","date":"ISO8601 date string","offsets":[...]}. Extract date/time from user message or quoted text. If user specified reminder offsets (e.g. 15m, 1h), extract them into offsets array. If no offsets requested, use [0] (remind at event time).
+- For reminders: Output {"type":"reminder","title":"...","date":"ISO8601 date string","offsets":[...]}.
+  - If user requests a reminder at a specific time or relative delay (e.g. "remind me in 5 minutes", "remind me at 6:40 PM"), set target "date" to that exact target time, and "offsets" to [0].
+  - If user quotes a meeting and says "remind me 5 minutes to the time", set target "date" to meeting start time, and "offsets" to [5].
+  - If user specifies no offsets, set "offsets" to [0]. NEVER output [30, 5] as default unless explicitly requested by user.
 - If the user message is too vague to create any of the above, output {"type":"clarify","message":"...a short clarifying question..."}.
 
 Current time: ${new Date().toISOString()}
@@ -1313,16 +1324,26 @@ Respond with ONLY the JSON object, nothing else.`;
         }
 
         if (parsed.type === 'event' || parsed.type === 'reminder') {
-          const title = parsed.title || 'Cohort Event';
-          const dateStr = parsed.date || new Date(Date.now() + 30 * 60 * 1000).toISOString();
-          const offsets = parsed.offsets?.length > 0 ? parsed.offsets : [30, 5];
+          const title = parsed.title || 'Cohort Reminder';
+          const dateStr = parsed.date || new Date(Date.now() + 5 * 60 * 1000).toISOString();
+          const offsets = (Array.isArray(parsed.offsets) && parsed.offsets.length > 0) ? parsed.offsets : [0];
           
           await createScheduledReminder(senderJid, title, dateStr, offsets, isGroup ? senderJid : 'all');
           const eventDate = new Date(dateStr);
-          const offsetDisplay = offsets.map(o => o >= 60 ? `${o/60}h` : `${o}m`).join(', ');
+          
+          const hasExact = offsets.includes(0);
+          const beforeArr = offsets.filter(o => o > 0);
+          let offsetDisplay = '';
+          if (beforeArr.length > 0) {
+            const listStr = beforeArr.map(o => o >= 60 ? `${o/60}h` : `${o}m`).join(', ') + ' before';
+            offsetDisplay = hasExact ? `${listStr} & at event time` : `${listStr}`;
+          } else {
+            offsetDisplay = 'At scheduled time';
+          }
+
           await sock.sendPresenceUpdate('paused', senderJid);
           await sock.sendMessage(senderJid, {
-            text: `✅ *${parsed.type === 'event' ? 'Event' : 'Reminder'} Scheduled!*\n\n📌 *${title}*\n📅 ${eventDate.toUTCString()}\n🔔 Reminders: ${offsetDisplay} before`
+            text: `✅ *${parsed.type === 'event' ? 'Event' : 'Reminder'} Scheduled!*\n\n📌 *${title}*\n📅 ${eventDate.toLocaleTimeString()} (${eventDate.toDateString()})\n🔔 Delivery: ${offsetDisplay}\n\nI will send you a DM when it's time!`
           }, { quoted: msg });
           return;
         }

@@ -1,7 +1,7 @@
 /**
- * PodPal BOT - Admin Private DM Scheduled Reminders Engine
- * Checks Supabase `scheduled_reminders` on a 1-minute ticker and posts
- * group reminders automatically (e.g. 30m & 5m before calls, 12h & 1h before deadlines).
+ * PodPal BOT - Admin & Participant Private DM Scheduled Reminders Engine
+ * Checks Supabase `scheduled_reminders` on a 1-minute ticker and delivers
+ * scheduled reminders directly to user DMs or group chats.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -27,9 +27,11 @@ export function setSchedulerSocket(sock) {
 }
 
 /**
- * Parses admin reminder input (e.g. `!remind 30m,5m "Wadhwani Call" at 2026-09-18T15:00:00Z`).
+ * Creates a scheduled reminder entry in Supabase database.
+ * Default offsets: [0] (remind at exact scheduled time, no hardcoded [30, 5]).
  */
-export async function createScheduledReminder(creatorJid, title, eventTimeIso, offsets = [30, 5], groupJid = 'all') {
+export async function createScheduledReminder(creatorJid, title, eventTimeIso, offsets = [0], groupJid = 'all') {
+  const finalOffsets = (Array.isArray(offsets) && offsets.length > 0) ? offsets : [0];
   const { data, error } = await supabase
     .from('scheduled_reminders')
     .insert({
@@ -37,7 +39,7 @@ export async function createScheduledReminder(creatorJid, title, eventTimeIso, o
       group_jid: groupJid,
       title: title,
       scheduled_for: eventTimeIso,
-      offsets: offsets,
+      offsets: finalOffsets,
       status: 'pending'
     })
     .select()
@@ -53,6 +55,7 @@ export async function createScheduledReminder(creatorJid, title, eventTimeIso, o
 
 /**
  * 1-minute background ticker that evaluates pending reminders.
+ * Triggers as soon as current time reaches or passes the trigger threshold (scheduled_time - offset).
  */
 async function checkAndSendReminders() {
   if (!socketRef) return;
@@ -69,7 +72,8 @@ async function checkAndSendReminders() {
 
     for (const item of reminders) {
       const scheduledTime = new Date(item.scheduled_for).getTime();
-      const diffMinutes = Math.round((scheduledTime - now) / (60 * 1000));
+      if (isNaN(scheduledTime)) continue;
+
       const targetJid = item.group_jid === 'all' ? item.creator_jid : item.group_jid;
 
       // Handle Native WhatsApp Polls
@@ -96,25 +100,37 @@ async function checkAndSendReminders() {
         continue;
       }
 
-      // Handle Timed Meeting / Event Reminders
-      const offsets = item.offsets || [30, 5];
+      // Handle Timed Reminders & Event Alerts
+      const offsets = (Array.isArray(item.offsets) && item.offsets.length > 0) ? item.offsets : [0];
       const sentOffsets = item.sent_offsets || [];
 
       for (const offset of offsets) {
-        // Trigger if within 1-minute window of offset
-        if (diffMinutes <= offset && diffMinutes > offset - 2 && !sentOffsets.includes(offset)) {
+        // Trigger threshold: scheduledTime - (offset in minutes * 60 * 1000)
+        const triggerTime = scheduledTime - (offset * 60 * 1000);
+
+        if (now >= triggerTime && !sentOffsets.includes(offset)) {
+          const isExactTime = (offset === 0);
           const formattedOffset = offset >= 60 ? `${Math.round(offset / 60)} hour(s)` : `${offset} minute(s)`;
           
-          const reminderMsg = `🔔 *REMINDER: Upcoming Cohort Event*\n\n📌 *${item.title}*\n⏰ Starting in *${formattedOffset}*!\n\n*Timezones*: ${new Date(scheduledTime).toLocaleTimeString()} (CAT / WAT / EAT)`;
+          const reminderHeader = isExactTime ? '🔔 *REMINDER*' : '🔔 *UPCOMING EVENT REMINDER*';
+          const timeDetail = isExactTime ? '⏰ It\'s time!' : `⏰ Starting in *${formattedOffset}*!`;
 
-          await socketRef.sendMessage(targetJid, { text: reminderMsg });
+          const reminderMsg = `${reminderHeader}\n\n📌 *${item.title}*\n${timeDetail}\n\n*Time*: ${new Date(scheduledTime).toLocaleTimeString()} (CAT / WAT / EAT)`;
+
+          try {
+            await socketRef.sendMessage(targetJid, { text: reminderMsg });
+            console.log(`[Reminder Sent] Triggered offset ${offset}m for "${item.title}" to ${targetJid}`);
+          } catch (sendErr) {
+            console.error(`[Reminder Send Error]:`, sendErr);
+          }
+
           sentOffsets.push(offset);
           await supabase.from('scheduled_reminders').update({ sent_offsets: sentOffsets }).eq('id', item.id);
         }
       }
 
-      // Mark as completed if all offsets sent or event passed
-      if (sentOffsets.length >= offsets.length || diffMinutes < -30) {
+      // Mark as completed if all requested offsets have been sent OR if 15 minutes past scheduled time
+      if (sentOffsets.length >= offsets.length || now >= scheduledTime + (15 * 60 * 1000)) {
         await supabase.from('scheduled_reminders').update({ status: 'completed' }).eq('id', item.id);
       }
     }
@@ -126,10 +142,11 @@ async function checkAndSendReminders() {
 export function startReminderScheduler(sock) {
   setSchedulerSocket(sock);
   if (tickerTimer) clearInterval(tickerTimer);
-  tickerTimer = setInterval(checkAndSendReminders, 60 * 1000); // 1-minute interval
-  console.log('✅ Admin Scheduled Reminders Ticker running (60s check).');
+  tickerTimer = setInterval(checkAndSendReminders, 30 * 1000); // Check every 30 seconds for precise delivery
+  console.log('✅ Scheduled Reminders Ticker running (30s check).');
 }
 
 export function stopReminderScheduler() {
   if (tickerTimer) clearInterval(tickerTimer);
 }
+
