@@ -209,8 +209,74 @@ const FACILITATOR_MAP = [
   { name: 'munira', jid: '250786387244@s.whatsapp.net' }
 ];
 
-const FACILITATOR_JIDS = FACILITATOR_MAP.map(f => f.jid);
-const FACILITATOR_NAMES = ['victor', 'diane', 'gift', 'ntuli', 'jeovaire', 'umukundwa', 'munira', 'charles', 'bolton'];
+const FACILITATOR_NUMBERS = [
+  '2349093696284', // Victor Akpan
+  '250783188655', // Diane
+  '27793565520',  // Charles Bolton
+  '263774094822', // Gift Ntuli
+  '250789355992', // Jeovaire Umukundwa
+  '250786387244'  // Munira Umugwaneza
+];
+
+/**
+ * Extracts clean digits from WhatsApp JID stripping device suffixes (:0, :12) and domains.
+ */
+function getCleanPhoneNumber(jidStr) {
+  if (!jidStr || typeof jidStr !== 'string') return '';
+  return jidStr.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+}
+
+/**
+ * Robustly checks if a sender JID or participant JID belongs to a verified cohort facilitator.
+ */
+function isAdminParticipant(jidStr) {
+  if (!jidStr) return false;
+  const num = getCleanPhoneNumber(jidStr);
+  return FACILITATOR_NUMBERS.includes(num);
+}
+
+/**
+ * Resolves participant's timezone and UTC offset from their WhatsApp phone number country code prefix.
+ */
+function getParticipantTimezone(jidStr) {
+  if (!jidStr || typeof jidStr !== 'string') return { tzName: 'CAT', utcOffset: 2, label: 'CAT (UTC+2)' };
+  
+  const cleanNum = getCleanPhoneNumber(jidStr);
+
+  if (cleanNum.startsWith('251') || cleanNum.startsWith('254') || cleanNum.startsWith('256') || cleanNum.startsWith('255')) {
+    return { tzName: 'EAT', utcOffset: 3, label: 'EAT (UTC+3)' };
+  }
+  if (cleanNum.startsWith('250') || cleanNum.startsWith('263') || cleanNum.startsWith('27') || cleanNum.startsWith('260') || cleanNum.startsWith('265') || cleanNum.startsWith('258')) {
+    return { tzName: 'CAT', utcOffset: 2, label: 'CAT (UTC+2)' };
+  }
+  if (cleanNum.startsWith('234') || cleanNum.startsWith('237') || cleanNum.startsWith('241') || cleanNum.startsWith('242') || cleanNum.startsWith('243') || cleanNum.startsWith('229') || cleanNum.startsWith('228') || cleanNum.startsWith('225') || cleanNum.startsWith('221') || cleanNum.startsWith('231')) {
+    return { tzName: 'WAT', utcOffset: 1, label: 'WAT (UTC+1)' };
+  }
+  if (cleanNum.startsWith('233') || cleanNum.startsWith('220') || cleanNum.startsWith('232')) {
+    return { tzName: 'GMT', utcOffset: 0, label: 'GMT (UTC+0)' };
+  }
+
+  return { tzName: 'CAT', utcOffset: 2, label: 'CAT (UTC+2)' };
+}
+
+/**
+ * Formats a Date object into participant's local timezone.
+ */
+function formatLocalTime(dateObj, tzInfo) {
+  const localDate = new Date(dateObj.getTime() + tzInfo.utcOffset * 3600 * 1000);
+  const hours = localDate.getUTCHours();
+  const mins = localDate.getUTCMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const h12 = hours % 12 || 12;
+  const timeStr = `${h12}:${mins < 10 ? '0' : ''}${mins} ${ampm}`;
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dayName = days[localDate.getUTCDay()];
+  const monthName = months[localDate.getUTCMonth()];
+  const dayNum = localDate.getUTCDate();
+  
+  return `${dayName}, ${dayNum} ${monthName} @ ${timeStr} ${tzInfo.tzName}`;
+}
 
 let runtimeConfig = { is_active: true, chat_scope: 'both' };
 const userCooldowns = new Map();
@@ -774,7 +840,7 @@ async function startBot() {
     const senderJid = msg.key.remoteJid;
     const senderParticipant = msg.key.participant || senderJid;
     const isGroup = senderJid.endsWith('@g.us');
-    const isFacilitator = FACILITATOR_JIDS.includes(senderParticipant);
+    const isFacilitator = isAdminParticipant(senderParticipant) || isAdminParticipant(senderJid);
 
     const messageType = Object.keys(msg.message || {})[0];
     const isAudio = messageType === 'audioMessage';
@@ -1558,12 +1624,13 @@ Respond with ONLY the JSON object, nothing else.`;
         }
 
         const audioBuffer = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });
+        let audioQuotedContext = quotedMessageText ? `\n[Quoted/Referenced Message Context: "${quotedMessageText}"]` : '';
         contentsPayload = [
           {
             role: 'user',
             parts: [
               { inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } },
-              { text: `${senderIdentityHeader}\nListen to this voice note. Detect the language, transcribe, and answer accurately in that same language.\n\n${getLiveTimestampContext()}` }
+              { text: `${senderIdentityHeader}${audioQuotedContext}\nListen to this voice note and fulfill the participant's question or task directly using grounded knowledge and any quoted message context.\n\nCRITICAL RULE: DO NOT include any introductory filler, language detection labels, or transcription prefixes (e.g., do NOT write "The language is English" or "Transcription: ..."). Output ONLY the direct answer/solution to the participant's voice note task!\n\n${getLiveTimestampContext()}` }
             ]
           }
         ];

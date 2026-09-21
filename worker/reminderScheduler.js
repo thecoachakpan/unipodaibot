@@ -27,6 +27,49 @@ export function setSchedulerSocket(sock) {
 }
 
 /**
+ * Resolves participant's timezone and UTC offset from their WhatsApp phone number country code prefix.
+ */
+function getParticipantTimezone(jidStr) {
+  if (!jidStr || typeof jidStr !== 'string') return { tzName: 'CAT', utcOffset: 2, label: 'CAT (UTC+2)' };
+  
+  const cleanNum = jidStr.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+
+  if (cleanNum.startsWith('251') || cleanNum.startsWith('254') || cleanNum.startsWith('256') || cleanNum.startsWith('255')) {
+    return { tzName: 'EAT', utcOffset: 3, label: 'EAT (UTC+3)' };
+  }
+  if (cleanNum.startsWith('250') || cleanNum.startsWith('263') || cleanNum.startsWith('27') || cleanNum.startsWith('260') || cleanNum.startsWith('265') || cleanNum.startsWith('258')) {
+    return { tzName: 'CAT', utcOffset: 2, label: 'CAT (UTC+2)' };
+  }
+  if (cleanNum.startsWith('234') || cleanNum.startsWith('237') || cleanNum.startsWith('241') || cleanNum.startsWith('242') || cleanNum.startsWith('243') || cleanNum.startsWith('229') || cleanNum.startsWith('228') || cleanNum.startsWith('225') || cleanNum.startsWith('221') || cleanNum.startsWith('231')) {
+    return { tzName: 'WAT', utcOffset: 1, label: 'WAT (UTC+1)' };
+  }
+  if (cleanNum.startsWith('233') || cleanNum.startsWith('220') || cleanNum.startsWith('232')) {
+    return { tzName: 'GMT', utcOffset: 0, label: 'GMT (UTC+0)' };
+  }
+
+  return { tzName: 'CAT', utcOffset: 2, label: 'CAT (UTC+2)' };
+}
+
+/**
+ * Formats a Date object into participant's local timezone.
+ */
+function formatLocalTime(dateObj, tzInfo) {
+  const localDate = new Date(dateObj.getTime() + tzInfo.utcOffset * 3600 * 1000);
+  const hours = localDate.getUTCHours();
+  const mins = localDate.getUTCMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const h12 = hours % 12 || 12;
+  const timeStr = `${h12}:${mins < 10 ? '0' : ''}${mins} ${ampm}`;
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dayName = days[localDate.getUTCDay()];
+  const monthName = months[localDate.getUTCMonth()];
+  const dayNum = localDate.getUTCDate();
+  
+  return `${dayName}, ${dayNum} ${monthName} @ ${timeStr} ${tzInfo.tzName}`;
+}
+
+/**
  * Creates a scheduled reminder entry in Supabase database.
  * Default offsets: [0] (remind at exact scheduled time, no hardcoded [30, 5]).
  */
@@ -115,7 +158,10 @@ async function checkAndSendReminders() {
           const reminderHeader = isExactTime ? '🔔 *REMINDER*' : '🔔 *UPCOMING EVENT REMINDER*';
           const timeDetail = isExactTime ? '⏰ It\'s time!' : `⏰ Starting in *${formattedOffset}*!`;
 
-          const reminderMsg = `${reminderHeader}\n\n📌 *${item.title}*\n${timeDetail}\n\n*Time*: ${new Date(scheduledTime).toLocaleTimeString()} (CAT / WAT / EAT)`;
+          const tzInfo = getParticipantTimezone(targetJid);
+          const localTimeStr = formatLocalTime(new Date(scheduledTime), tzInfo);
+
+          const reminderMsg = `${reminderHeader}\n\n📌 *${item.title}*\n${timeDetail}\n\n*Scheduled Time*: ${localTimeStr}`;
 
           try {
             await socketRef.sendMessage(targetJid, { text: reminderMsg });
