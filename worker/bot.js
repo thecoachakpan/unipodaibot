@@ -36,11 +36,23 @@ dotenv.config();
 
 let latestQrString = null;
 let isConnectedToWA = false;
+let activeSocket = null;
 
 // HTTP Health Check & Web QR Code Server for Render Deployment
 const port = process.env.PORT || 10000;
 const server = http.createServer(async (req, res) => {
   const url = req.url || '/';
+  if (url === '/reset-qr' || url === '/reset-qr/' || url.includes('reset=true')) {
+    console.log('🔄 [Manual Reset]: Purging WhatsApp auth session requested via Web...');
+    latestQrString = null;
+    isConnectedToWA = false;
+    await clearSupabaseAuthState(supabase);
+    res.writeHead(302, { Location: '/qr' });
+    res.end();
+    setTimeout(() => startBot(), 1000);
+    return;
+  }
+
   if (url === '/qr' || url === '/qr/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     if (isConnectedToWA) {
@@ -63,6 +75,7 @@ const server = http.createServer(async (req, res) => {
             <h2>🤖 PodPal BOT is Online!</h2>
             <p>WhatsApp client is fully authenticated and actively listening for cohort queries 24/7.</p>
             <div class="status">✅ Connected to WhatsApp</div>
+            <div><a href="/reset-qr" onclick="return confirm('Disconnect current WhatsApp session and re-generate QR Code?');" style="display: inline-block; margin-top: 18px; color: #f43f5e; font-size: 13px; text-decoration: underline;">Disconnect & Re-scan QR Code</a></div>
           </div>
         </body>
         </html>
@@ -89,6 +102,7 @@ const server = http.createServer(async (req, res) => {
           <div class="card">
             <h2>⏳ Initializing WhatsApp Engine...</h2>
             <p>Generating your fresh QR Code. Page will refresh automatically in 4 seconds...</p>
+            <p style="font-size: 13px; color: #94a3b8; margin-top: 15px;">Stuck initializing? <a href="/reset-qr" style="color: #f59e0b; text-decoration: underline;">Click here to reset session & force new QR code</a></p>
           </div>
         </body>
         </html>
@@ -121,6 +135,7 @@ const server = http.createServer(async (req, res) => {
             <p class="instructions">Open WhatsApp ➔ Linked Devices ➔ Link a Device, then point camera at image below:</p>
             <img src="${dataUrl}" alt="WhatsApp QR Code" />
             <div><span class="badge">⏳ Auto-refreshes every 8 seconds</span></div>
+            <div><a href="/reset-qr" style="display: inline-block; margin-top: 14px; color: #94a3b8; font-size: 13px; text-decoration: underline;">Force Reset & Generate New QR Code</a></div>
           </div>
         </body>
         </html>
@@ -181,18 +196,21 @@ const supabase = createClient(
   }
 );
 
-// Verified cohort facilitator WhatsApp JIDs (Diane, Gift, Jeovaire, Munira, Charles Bolton)
+// Verified cohort facilitator WhatsApp JIDs (Victor Akpan, Diane, Gift Ntuli, Jeovaire Umukundwa, Munira, Charles Bolton)
 const FACILITATOR_MAP = [
-  { name: 'diane', jid: '250788000000@s.whatsapp.net' },
+  { name: 'victor', jid: '2349093696284@s.whatsapp.net' },
+  { name: 'diane', jid: '250783188655@s.whatsapp.net' },
   { name: 'charles', jid: '27793565520@s.whatsapp.net' },
   { name: 'bolton', jid: '27793565520@s.whatsapp.net' },
-  { name: 'gift', jid: '27793565520@s.whatsapp.net' },
-  { name: 'jeovaire', jid: '250785813700@s.whatsapp.net' },
-  { name: 'munira', jid: '250781718040@s.whatsapp.net' }
+  { name: 'gift', jid: '263774094822@s.whatsapp.net' },
+  { name: 'ntuli', jid: '263774094822@s.whatsapp.net' },
+  { name: 'jeovaire', jid: '250789355992@s.whatsapp.net' },
+  { name: 'umukundwa', jid: '250789355992@s.whatsapp.net' },
+  { name: 'munira', jid: '250786387244@s.whatsapp.net' }
 ];
 
 const FACILITATOR_JIDS = FACILITATOR_MAP.map(f => f.jid);
-const FACILITATOR_NAMES = ['diane', 'gift', 'jeovaire', 'munira', 'charles', 'bolton'];
+const FACILITATOR_NAMES = ['victor', 'diane', 'gift', 'ntuli', 'jeovaire', 'umukundwa', 'munira', 'charles', 'bolton'];
 
 let runtimeConfig = { is_active: true, chat_scope: 'both' };
 const userCooldowns = new Map();
@@ -281,6 +299,26 @@ async function useSupabaseAuthState(supabaseClient) {
       });
     }
   };
+}
+
+/**
+ * Clears saved Baileys auth session from Supabase database (whatsapp_auth table).
+ * Call this when WhatsApp reports loggedOut or manually reset so fresh QR code can be generated.
+ */
+async function clearSupabaseAuthState(supabaseClient) {
+  try {
+    const { error } = await supabaseClient
+      .from('whatsapp_auth')
+      .delete()
+      .neq('key', '');
+    if (error) {
+      console.error('⚠️ [Auth Cleanup] Error clearing whatsapp_auth table:', error.message || error);
+    } else {
+      console.log('🧹 [Auth Cleanup] Successfully cleared invalid whatsapp_auth session from Supabase.');
+    }
+  } catch (err) {
+    console.error('⚠️ [Auth Cleanup] Exception clearing auth state:', err);
+  }
 }
 
 /**
@@ -454,24 +492,34 @@ ${knowledgeContext}
 
 STRICT CONSTRAINTS & BEHAVIOR:
 1. Ultra-Concise & Direct: Keep all responses brief, direct, and concise (2-4 sentences max, or short bullet points for multi-step guidance). Avoid wordy intros, long filler, or conversational fluff.
-2. Grounded Accuracy: Answer only using facts in the knowledge base. If an event or meeting has concluded (date prior to current date), explicitly state that it has ended, provide any available recording/slides links, or refer the user to unipods.regional@undp.org.
-3. Natural Queries: Participants ask questions naturally. Do NOT require exclamation commands (!deadlines, !links) from participants. Answer natural questions about deadlines, schedules, resources, or requirements immediately and directly.
-4. Dynamic Per-Turn Language Switching: Automatically detect the language of the inbound prompt (English, French, Arabic, Amharic, etc.) on EACH turn and respond fluently in that exact same language.
-5. Proactive Screenshot Request: When a user asks about a technical error, login issue, or platform bug on MIT, Wadhwani, or Ethiopia AI portals that lacks error codes or specific context, proactively prompt: "To give you exact, tailored step-by-step guidance, could you please reply with a screenshot of the error or screen you are seeing?"
-6. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
-7. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
-8. Timezones: Always format call schedules and deadlines with explicit cohort timezones: CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
-9. Focus Shield: You assist with anything related to the UniPods METI AI Innovation Cohort, including but not limited to: cohort tracks, portals, schedules, assignments, deadlines, platform support, team formation, hackathon logistics, meeting links, recordings, certificates, enrollment issues, coaching sessions, Open Hours, business/solution development, and general programme questions. Be generous in interpretation — if the message could plausibly relate to the programme, answer it helpfully. ONLY output "[OFF_TOPIC]" if the prompt is completely unrelated to any educational, professional, or cohort context (e.g. cooking recipes, celebrity gossip, sports scores, weather forecasts, entertainment). When in doubt, answer the question.
-10. WhatsApp Profile Names & No Invented Names: Address participants using ONLY their verified WhatsApp profile name (PushName) provided in the prompt context. If PushName is missing, null, or contains only special characters/emojis, NEVER assign, guess, or invent a name (such as "Friend", "User", "Participant", "John"). In group chats, tag them using @phone or respond directly without inventing any name.
-11. Misinterpretations & Apologies Directive: Read every prompt carefully. If a user states that a previous answer was wrong, incorrect, or misinterpreted (e.g., "that's not what I asked", "you misunderstood", "no, I meant..."), ALWAYS begin your response with a sincere, polite apology (e.g., "I apologize for the misunderstanding earlier.") before providing the correct, grounded answer.
-12. Unverified Facts: If an answer cannot be verified, inform the user in their language:
+2. NO Boilerplate Outros / Trailing Explanations: NEVER append trailing summary paragraphs, promos, or canned intros explaining what you were created to do (e.g., "I'm PodPal BOT, created to assist..."). Just answer the question asked or execute the requested task directly (e.g., translating text, pointing to reference messages, or tagging admins).
+3. Grounded Accuracy: Answer only using facts in the knowledge base. If an event or meeting has concluded (date prior to current date), explicitly state that it has ended, provide any available recording/slides links, or refer the user to unipods.regional@undp.org.
+4. Natural Queries & Direct Task Execution: Participants ask questions or give commands naturally. When requested to perform a task (e.g., "translate this to French", "tag Gift here", "point me to the reference message"), execute the task immediately and directly without unnecessary fluff.
+5. Dynamic Per-Turn Language Switching: Automatically detect the language of the inbound prompt (English, French, Arabic, Amharic, etc.) on EACH turn and respond fluently in that exact same language.
+6. Proactive Screenshot Request: When a user asks about a technical error, login issue, or platform bug on MIT, Wadhwani, or Ethiopia AI portals that lacks error codes or specific context, proactively prompt: "To give you exact, tailored step-by-step guidance, could you please reply with a screenshot of the error or screen you are seeing?"
+7. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
+8. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
+9. Timezones: Always format call schedules and deadlines with explicit cohort timezones: CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
+10. Focus Shield: You assist with anything related to the UniPods METI AI Innovation Cohort. ONLY output "[OFF_TOPIC]" if the prompt is completely unrelated to any educational, professional, or cohort context.
+11. WhatsApp Profile Names & No Invented Names: Address participants using ONLY their verified WhatsApp profile name (PushName) provided in the prompt context. Never invent names.
+12. PARTICIPANT SATISFACTION & DISSATISFACTION ESCALATION PROTOCOL:
+    - SATISFACTION: When participants express gratitude or satisfaction (e.g., "thanks", "that worked", "great"), acknowledge warmly.
+    - DISSATISFACTION / VAGUE CONTEXT: If a participant expresses dissatisfaction ("that doesn't help", "still wrong", "unhelpful"), apologize sincerely, ask clarifying follow-up questions where context is missing or vague, and guide them step-by-step until they reach satisfaction.
+    - PERSISTENT DISSATISFACTION ESCALATION: If the participant continues to express dissatisfaction after you have already provided accurate, complete information that should address the issue, inform them politely in their language:
+      "If you still feel unsatisfied with the responses provided, you can reach out directly to the program admins (@Victor, @Gift, @Diane, @Charles, @Jeovaire, @Munira) for further hands-on assistance, or send an email to unipods.regional@undp.org."
+13. Admin Mention Tagging: When asked to tag admins or program leads ("tag the admins here", "tag Victor here", "tag Gift here"), include native WhatsApp tags (@Victor, @Gift, @Diane, @Charles, @Jeovaire, @Munira) directly in your message response.
+14. Unverified Facts: If an answer cannot be verified, inform the user in their language:
    - English: "I don't have verified information on this yet. Please contact the team at unipods.regional@undp.org."
    - French: "Je n'ai pas encore d'informations vérifiées à ce sujet. Veuillez contacter l'équipe à unipods.regional@undp.org."
-13. NO External Drive Links & Native Document Uploads:
-    - NEVER output raw Google Drive web links, URLs, or external links for downloadable documents in text responses.
-    - When a participant asks for an official document, handbook, guide, or FAQ pack, evaluate whether their request specifies a known document.
-    - IF THE REQUEST IS VAGUE OR AMBIGUOUS (e.g. "send me the file", "can I get the document?", "send PDF"): Do NOT send any file or link. Instead, politely ask the participant to clarify which specific document they need (e.g. "Which document would you like me to send? Please specify: 1. Official Cohort FAQ Pack, 2. Wadhwani Business Model Template, or 3. MIT Track Guide.").
-    - IF THEY SPECIFY A KNOWN DOCUMENT (e.g., Official Cohort FAQ Pack): State that you are uploading the official PDF document directly into the chat.
+15. NO External Drive Links & Native Document Uploads: Never output raw Google Drive web links in text responses.
+16. STRICT ASSIGNMENT & TASK BOUNDARY (ACADEMIC INTEGRITY SHIELD):
+    - You MUST NOT provide extensive technical guidance, step-by-step code/setup solutions, debugging, troubleshooting steps, or advisory to help participants get their assignments or tasks done (e.g. fixing API keys setup for assignments, writing assignment code, or solving task roadblocks).
+    - YOUR GUIDANCE IS STRICTLY LIMITED TO:
+      a) Explaining WHAT is expected of participants (task guidelines, submission format, requirements, deadlines).
+      b) Guiding participants on HOW and WHERE to locate their expected tasks/materials on the course portals.
+    - IF A PARTICIPANT ASKS YOU TO HELP FIX, DEBUG, OR COMPLETE AN ASSIGNMENT OR TASK ROADBLOCK:
+      - Inform them in their language that you can only provide responses related to general program requirements and portal navigation, but CANNOT troubleshoot or solve specific assignment tasks or code for participants.
+      - Advise them to seek direct support from the relevant program facilitators/admins (e.g., during Open Hours or coaching sessions) or send an email to unipods.regional@undp.org (or uaisupport@mit.edu for MIT track) for technical assignment assistance.
 
 CRITICAL DEADLINE COMPARISON INSTRUCTIONS:
 - ONLY discuss or evaluate deadlines when the user explicitly asks about deadlines, schedules, submission dates, or upcoming milestones.
@@ -546,11 +594,23 @@ async function setupConfigRealtime() {
  */
 async function startBot() {
   await setupConfigRealtime();
+
+  if (activeSocket) {
+    try {
+      activeSocket.ev.removeAllListeners();
+      activeSocket.end(undefined);
+    } catch (e) {
+      // Ignore socket teardown error
+    }
+    activeSocket = null;
+  }
+
   const { state, saveCreds } = await useSupabaseAuthState(supabase);
 
   const sock = makeWASocket({
     auth: state,
   });
+  activeSocket = sock;
 
   sock.ev.on('creds.update', saveCreds);
 
@@ -581,7 +641,13 @@ async function startBot() {
         console.log(`🔄 [WhatsApp Worker]: Connection closed (${statusCode || 'Unknown'}). Reconnecting in 3s...`);
         setTimeout(() => startBot(), 3000);
       } else {
-        console.error('❌ [WhatsApp Worker]: Logged out from WhatsApp. Please re-scan QR code.');
+        console.error('❌ [WhatsApp Worker]: Logged out from WhatsApp. Purging invalid auth session and generating fresh QR code...');
+        latestQrString = null;
+        isConnectedToWA = false;
+        clearSupabaseAuthState(supabase).then(() => {
+          console.log('🔄 [WhatsApp Worker]: Re-initializing worker with clean state in 3s...');
+          setTimeout(() => startBot(), 3000);
+        });
       }
     } else if (connection === 'open') {
       isConnectedToWA = true;
@@ -682,16 +748,42 @@ async function startBot() {
     }
 
     // ----------------------------------------------------
-    // PIPELINE 1.6: PARTICIPANT FEEDBACK & GRATITUDE REACTION ENGINE
+    // PIPELINE 1.6: PARTICIPANT FEEDBACK & HYBRID GRATITUDE ENGINE (REACTION + QUOTE REPLY)
     // ----------------------------------------------------
-    const gratitudeKeywords = ['thanks', 'thank you', 'merci', 'that worked', 'solved it', 'awesome bot', 'great bot', 'much appreciated', 'bless you'];
+    const gratitudeKeywords = ['thanks', 'thank you', 'merci', 'that worked', 'solved it', 'awesome bot', 'great bot', 'much appreciated', 'bless you', 'super bot'];
     const isGratitude = gratitudeKeywords.some(k => cleanLower.includes(k));
     if (isGratitude && cleanLower.split(/\s+/).length < 12) {
       const happyEmojis = ['🙏', '😊', '💙', '👍'];
       const chosenEmoji = happyEmojis[Math.floor(Math.random() * happyEmojis.length)];
+      const isFrench = cleanLower.includes('merci');
+
+      const replyPhrasesEn = [
+        "😊 You're very welcome! Always happy to help with your METI AI journey!",
+        "🙏 Glad that helped! Let me know if you need anything else.",
+        "💙 You're welcome! Keep building great things!",
+        "👍 Happy to assist! Wishing you a fantastic cohort week!"
+      ];
+      const replyPhrasesFr = [
+        "😊 De rien ! Toujours ravi de vous aider dans votre parcours METI AI !",
+        "🙏 Heureux que cela vous ait aidé ! N'hésitez pas si vous avez d'autres questions.",
+        "💙 Avec plaisir ! Continuez votre excellent travail !",
+        "👍 Ravi de vous aider ! Excellente semaine de formation !"
+      ];
+
+      const chosenPhrase = isFrench
+        ? replyPhrasesFr[Math.floor(Math.random() * replyPhrasesFr.length)]
+        : replyPhrasesEn[Math.floor(Math.random() * replyPhrasesEn.length)];
+
       try {
+        // 1. Native WhatsApp Message Reaction
         await sock.sendMessage(senderJid, { react: { text: chosenEmoji, key: msg.key } });
       } catch (reactErr) {}
+
+      try {
+        // 2. High-Visibility Quote Reply
+        await sock.sendMessage(senderJid, { text: chosenPhrase }, { quoted: msg });
+        return;
+      } catch (replyErr) {}
     }
 
     const validPushName = getValidPushName(msg);
@@ -738,59 +830,36 @@ async function startBot() {
 
     const wordCount = cleanPrompt.split(/\s+/).filter(Boolean).length;
 
-    // Program-Related Inquiry Detector for Groups (broad keyword + question heuristic)
+    // Program-Related Keyword Matcher
     const programKeywordMatch = /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project|unipod|meti|program|programme|course|module|enrol|enrollment|chatbot|team|class|open hour|coaching|milestone|problem statement|bootcamp|addis|funding|timbuktoo|charles|workshop|onboarding|platform|sign up|sign in|blank page|error|email|notification|invite|enrolled|certificate|recap|today|tomorrow|next week|this week)/i.test(cleanPrompt);
 
-    // Question-detection heuristic: messages ending with ? or starting with question words are likely inquiries
-    const looksLikeQuestion = cleanPrompt.endsWith('?') || /^(what|when|where|how|who|why|can|is|are|do|does|did|will|should|could|please|any|has|have|was|were|which|explain|tell)/i.test(cleanPrompt.trim());
+    // Question-detection heuristic: must end with ? OR start/contain explicit question or inquiry phrases
+    const looksLikeQuestion = cleanPrompt.endsWith('?') ||
+                              /^(what|when|where|how|who|why|can|is|are|do|does|did|will|should|could|please|any|has|have|was|were|which|explain|tell|anyone|is there|where is|how do|can someone)/i.test(cleanPrompt.trim()) ||
+                              /(when is|what is|where is|how to|how do|need help|help with|anyone know|link for|schedule for|deadline for|can i get)/i.test(cleanPrompt);
 
-    const isQuestionOrInquiry = programKeywordMatch || looksLikeQuestion;
+    // Declarative statement guard: Filter out statements like "I submitted module 2", "that worked", "me too", "I finished"
+    const isDeclarativeStatement = !cleanPrompt.endsWith('?') && /^(i|we|my|the|that|this|it|yes|no|yeah|yep|sure|okay|ok|agree|done|completed|finished|submitted|got|seen|already|thanks|thank|great|awesome)\b/i.test(cleanPrompt.trim()) && !/^(please|can|could|how|what|when|where|why|help|explain|tell)/i.test(cleanPrompt.trim());
 
-    // Group Chat Scope Filtering (Processes quote-replies, mentions, tags, or any program inquiries/questions)
+    // A message is a valid program inquiry ONLY if it matches program keywords AND is an actual question AND is NOT a declarative statement
+    const isQuestionOrInquiry = programKeywordMatch && looksLikeQuestion && !isDeclarativeStatement;
+
+    // Group Chat Scope Filtering
+    // The bot only responds in groups to:
+    // 1. Mentions or tags (@bot, !ask, podpal, bot, or native @mention)
+    // 2. Direct replies to any of the bot's responses (isQuotedBotReply)
+    // 3. Mentions of a facilitator/admin IN AN ACTUAL QUESTION (mentionsAdmin && isQuestionOrInquiry)
+    // 4. Fresh unquoted program-related questions (isQuestionOrInquiry when NOT replying to another participant)
+    const isQuotedPeerReply = isGroup && !isQuotedBotReply && !!contextInfo?.quotedMessage;
+    const isQuestionMentioningAdmin = mentionsAdmin && isQuestionOrInquiry;
+
     if (isGroup) {
       if (runtimeConfig.chat_scope === 'private_only') return;
-      if (!isTagged && !mentionsAdmin && !isQuotedBotReply && !isQuestionOrInquiry && !contextInfo?.quotedMessage) return;
-    }
 
-    // ----------------------------------------------------
-    // PIPELINE 1.7: PEER SUPPORT & INTERLEAVED PARTICIPANT ANSWER VALIDATOR
-    // ----------------------------------------------------
-    const isQuotedPeerReply = isGroup && !isFacilitator && !isQuotedBotReply && contextInfo?.quotedMessage;
-    if (isQuotedPeerReply && programKeywordMatch) {
-      const quotedPeerText = contextInfo.quotedMessage?.conversation ||
-                             contextInfo.quotedMessage?.extendedTextMessage?.text || '';
-      if (quotedPeerText) {
-        (async () => {
-          try {
-            const peerPrompt = `
-Participant A asked: "${quotedPeerText}"
-Participant B replied: "${rawText}"
+      const isFreshQuestion = isQuestionOrInquiry && !isQuotedPeerReply;
+      const shouldRespondInGroup = isTagged || isQuestionMentioningAdmin || isQuotedBotReply || isFreshQuestion;
 
-TASK:
-Check if Participant B's reply is program-related and accurate according to official UniPods METI AI cohort rules.
-- If ACCURATE & HELPFUL: "status": "accurate"
-- If MISLEADING / INCORRECT: "status": "inaccurate"
-- If NOT an answer/casual chat: "status": "ignore"
-
-Return JSON:
-{ "status": "accurate" | "inaccurate" | "ignore" }
-`.trim();
-            const sysInst = 'You are a precise peer answer evaluator. Output valid JSON only.';
-            const peerCheckRaw = await callAiWithFallbackChain(peerPrompt, sysInst);
-            let cleanPeerJson = peerCheckRaw.trim();
-            if (cleanPeerJson.startsWith('```json')) cleanPeerJson = cleanPeerJson.replace(/```json/g, '').replace(/```/g, '').trim();
-            if (cleanPeerJson.startsWith('```')) cleanPeerJson = cleanPeerJson.replace(/```/g, '').trim();
-            const peerRes = JSON.parse(cleanPeerJson);
-
-            if (peerRes?.status === 'accurate') {
-              await sock.sendMessage(senderJid, { react: { text: '✅', key: msg.key } });
-              console.log(`[Peer Support Validator] ✅ Validated accurate peer answer from ${senderParticipant}`);
-            }
-          } catch (peerErr) {
-            console.warn('[Peer Support Validator Error]:', peerErr?.message || peerErr);
-          }
-        })();
-      }
+      if (!shouldRespondInGroup) return;
     }
 
     // Per-user cooldown jitter (15s)
@@ -1050,8 +1119,21 @@ Return JSON:
         updateSessionHistory(senderJid, cleanPrompt, replyText);
       }
 
+      // Automatically collect native WhatsApp mentions (JIDs) for tagged admins and sender
+      const mentionsList = [];
+      if (senderParticipant && isGroup) mentionsList.push(senderParticipant);
+
+      for (const admin of FACILITATOR_MAP) {
+        const adminNumber = admin.jid.split('@')[0];
+        if (replyText.toLowerCase().includes(admin.name) || replyText.includes(adminNumber) || cleanLower.includes(admin.name)) {
+          if (!mentionsList.includes(admin.jid)) {
+            mentionsList.push(admin.jid);
+          }
+        }
+      }
+
       await sock.sendPresenceUpdate('paused', senderJid);
-      await sock.sendMessage(senderJid, { text: replyText }, { quoted: msg });
+      await sock.sendMessage(senderJid, { text: replyText, mentions: mentionsList }, { quoted: msg });
 
     } catch (err) {
       console.error('[Inference Error - Silent Retry Exceeded]:', err);
