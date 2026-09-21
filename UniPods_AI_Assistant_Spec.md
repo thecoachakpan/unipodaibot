@@ -43,11 +43,13 @@ An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** desig
 │  - Multimodal Audio: Native OGG Opus Audio -> Gemini        │
 │  - In-memory session manager with 10m TTL sweeper           │
 │  - Anti-Ban safeguards (Burst rate-limiter, jitter)         │
+│  - WhatsApp LID Guard & Clean E.164 Phone Tagging           │
+│  - PushName Facilitator / Admin Recognition Fallback        │
+│  - Native Document Buffer Delivery & DM Session Validation   │
 │  - Google Drive & Link Auto-Ingestion Pipeline              │
-│  - 3-Tier AI Fallback Pipeline:                             │
-│    1. Primary: Gemini API (gemini-2.5-flash-lite)          │
-│    2. 1st Fallback: Gemini API (gemini-3.1-flash-lite)      │
-│    3. 2nd Fallback: Gemini API (gemini-3.5-flash-lite)      │
+│  - Gemini AI Fallback Pipeline:                             │
+│    1. Primary: Gemini API (gemini-3.1-flash-lite)          │
+│    2. Fallback: Gemini API (gemini-3.5-flash-lite)         │
 │  - Render Zero-Sleep Uptime: HTTP /health & 9m Self-Ping    │
 └──────────────────────────────┘
 ```
@@ -83,12 +85,11 @@ Running automated bots via Baileys connects as an emulated WhatsApp Web multi-de
 
 ---
 
-## 3. Core AI Engine & Multimodal Capabilities: 3-Tier Fallback Pipeline
+## 3. Core AI Engine & Multimodal Capabilities: Gemini Fallback Pipeline
 
-**PodPal BOT** operates using a highly resilient **3-Tier AI Fallback Engine**:
-1. **Primary Model — Google GenAI (`gemini-2.5-flash-lite`)**: High-speed inference via Google's Gemini API (`GEMINI_API_KEY`).
-2. **1st Fallback Model — Google GenAI (`gemini-3.1-flash-lite`)**: Activated automatically if `gemini-2.5-flash-lite` experiences a rate-limit or transient error.
-3. **2nd Fallback Model — Google GenAI (`gemini-3.5-flash-lite`)**: Activated automatically if both primary and 1st fallback models experience transient outages.
+**PodPal BOT** operates using a highly resilient **Gemini AI Fallback Engine**:
+1. **Primary Model — Google GenAI (`gemini-3.1-flash-lite`)**: High-speed inference via Google's Gemini API (`GEMINI_API_KEY`).
+2. **Fallback Model — Google GenAI (`gemini-3.5-flash-lite`)**: Activated automatically if `gemini-3.1-flash-lite` experiences a rate-limit or transient outage.
 
 **Multimodal & Intelligence Features**:
 - **Dynamic Per-Turn Language Detection & Mid-Chat Switching**: Automatically detects the language of every prompt (English, French, Arabic, Amharic, Swahili, etc.) on each turn. If a user switches from English to French mid-conversation, **PodPal BOT** seamlessly switches to French!
@@ -232,6 +233,16 @@ Comment puis-je vous aider aujourd'hui ? 😊
 ### 6.8 Hackathon Team Eligibility Checker
 - Interactive verification of team compliance with UniPods Chatbot Hackathon rules (max 5 members, multi-country representation, at least 1 female member).
 
+### 6.9 WhatsApp LID Identity Guard & PushName Admin Fallback
+- **LID Phone Guard**: Discards `@lid` numbers or raw LID strings (>15 digits) when identifying users. Prevents invalid LID tags (e.g. `@+120363430230054304`) from being output in group receipts or mentions, restricting tags strictly to valid E.164 phone numbers (<=15 digits).
+- **PushName Facilitator Match**: When WhatsApp sends an unmapped `@lid` JID, matches `validPushName` against `FACILITATOR_MAP` (Victor Akpan, Diane, Gift, Jeovaire, Munira, Charles Bolton). If matched, sets `isFacilitator = true` and recovers the correct phone JID from the facilitator map, guaranteeing admin recognition never fails.
+
+### 6.10 Guaranteed Document & Native File Delivery Protocol
+- **Native Document Attachments Only**: **NEVER** share, output, or send raw Google Drive links or web URLs when a file or document is requested from the Drive folder. **ALWAYS** download the file buffer and upload the actual native document attachment (`.pdf`, etc.) directly to WhatsApp.
+- **DM Delivery Session Guard**: Validates `hasActiveDMSession(senderJid)` **AND** `cleanSenderNum.length <= 15` before attempting DM document dispatch.
+- **Group Upload Fallback**: If the user requested the document in a group chat with explicit group intent ("send here", "upload here", "in group") OR if the user does NOT have an active DM session OR if DM dispatch fails: automatically uploads the native document attachment directly into the group chat to guarantee document delivery NEVER fails.
+- **Strict Delivery Confirmation**: **NEVER** output text confirming or claiming that a file was sent to a private DM if no file attachment was physically dispatched and delivered.
+
 ---
 
 ## 7. Next.js Admin Dashboard with Supabase Auth (app/admin/page.tsx)
@@ -244,10 +255,10 @@ Comment puis-je vous aider aujourd'hui ? 😊
 
 ---
 
-## 8. Google Drive Automated PDF Ingestion Pipeline
+## 8. Google Drive Automated PDF Ingestion & File Delivery Pipeline
 - Uses Google Service Account JWT auth (`googleDrive.js`).
-- Uploads decrypted WhatsApp PDF/Doc buffers (<20MB) to a shared Google Drive folder.
-- Sets public read permission and syncs direct shareable links to Supabase `knowledge_entries`.
+- Ingestion: Uploads decrypted WhatsApp PDF/Doc buffers (<20MB) to a shared Google Drive folder and syncs metadata to Supabase `knowledge_entries`.
+- Delivery: When requested by users, downloads native document buffers from Google Drive and dispatches native document attachments directly to WhatsApp. Strictly avoids raw Drive URLs.
 
 ---
 

@@ -31,12 +31,11 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
   - Recognize verified Admin WhatsApp JIDs (Diane, Gift, Jeovaire, Munira, Charles Bolton).
   - Enable private DM Admin Mode with commands (`!remind 30m,5m`, `!announce`, `!faq`).
   - Implement 1-minute ticker for automated group reminder broadcasts with graceful stop handlers (`stopReminderScheduler`).
-- [x] **2.4 Baileys Engine, 3-Tier AI Pipeline & Smart DM Router (`worker/bot.js`)**
+- [x] **2.4 Baileys Engine, Gemini AI Pipeline & Smart DM Router (`worker/bot.js`)**
   - Initialize Baileys WhatsApp client with **PodPal BOT** identity.
-  - **3-Tier AI Fallback Pipeline**:
-    - **Primary Model**: Google GenAI (`gemini-2.5-flash-lite`).
-    - **1st Fallback Model**: Google GenAI (`gemini-3.1-flash-lite`).
-    - **2nd Fallback Model**: Google GenAI (`gemini-3.5-flash-lite`).
+  - **Gemini AI Fallback Pipeline**:
+    - **Primary Model**: Google GenAI (`gemini-3.1-flash-lite`).
+    - **Fallback Model**: Google GenAI (`gemini-3.5-flash-lite`).
   - **Render 100% Uptime (Zero-Sleep) Engine**: HTTP Server listening on process `PORT` providing `/health` JSON metrics & built-in 9-minute heartbeat (`startSelfPing()`).
   - **Connection Resilience & Error Boundaries**: 10s backoff on session conflict (`connectionReplaced`), clean timer shutdowns, and process-level uncaught exception handlers.
   - Implement **Per-Turn Multilingual Detection & Mid-Chat Language Switcher** (seamlessly switches between English, French, Arabic, etc.).
@@ -55,6 +54,10 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
   - Implement log-on-miss entry into `unresolved_queries`.
 - [x] **2.5 Grounded Knowledge Base Seeding (`worker/seedKnowledge.js`)**
   - Seed initial FAQs from `UniPods_AI_Assistant_Spec.md` for MIT, Wadhwani, Ethiopia AI, deadlines, and UN GA demo video submission.
+- [x] **2.6 WhatsApp LID Resolution, PushName Admin Fallback & Native Document Delivery (`worker/bot.js`)**
+  - Implement **LID Phone Guard**: Discard `@lid` numbers (>15 digits) in user identification to prevent invalid mention tagging (`@+120363430230054304`).
+  - Implement **PushName Facilitator Match**: Match `validPushName` against `FACILITATOR_MAP` (Victor Akpan, Diane, Gift, Jeovaire, Munira, Charles Bolton) when WhatsApp sends unmapped `@lid` JIDs, recovering admin rights and phone JIDs seamlessly.
+  - Implement **Guaranteed Native Document Attachment Pipeline**: Download Google Drive file buffers directly and upload native `.pdf` attachments. Validate `hasActiveDMSession(senderJid)` and automatically fall back to group chat delivery if no DM thread exists, if DM fails, or if explicitly requested in group. Never output raw Drive URLs.
 
 ---
 
