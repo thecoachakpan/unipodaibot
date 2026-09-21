@@ -418,6 +418,47 @@ async function getGroupSubject(sock, groupJid) {
   }
 }
 
+// Known Group JIDs Cache — populated from sock.groupFetchAllParticipating()
+let knownGroupJidsCache = { jids: [], subjects: {}, fetchedAt: 0 };
+
+async function getKnownGroupJids(sock) {
+  if (knownGroupJidsCache.jids.length > 0 && (Date.now() - knownGroupJidsCache.fetchedAt < 10 * 60 * 1000)) {
+    return knownGroupJidsCache;
+  }
+  try {
+    const groups = await sock.groupFetchAllParticipating();
+    const entries = Object.values(groups);
+    const jids = entries.map(g => g.id);
+    const subjects = {};
+    for (const g of entries) {
+      subjects[g.id] = g.subject || 'WhatsApp Group';
+      groupMetadataCache.set(g.id, { subject: g.subject || 'WhatsApp Group', fetchedAt: Date.now() });
+    }
+    knownGroupJidsCache = { jids, subjects, fetchedAt: Date.now() };
+    return knownGroupJidsCache;
+  } catch (err) {
+    console.error('[Group JID Discovery Error]:', err?.message || err);
+    return knownGroupJidsCache;
+  }
+}
+
+/**
+ * Resolves target group JID(s) from an admin DM message.
+ * If a group name keyword is provided, matches by subject. Otherwise returns all known groups.
+ */
+async function resolveTargetGroups(sock, groupHint) {
+  const cache = await getKnownGroupJids(sock);
+  if (!groupHint || groupHint === 'all' || groupHint === 'group') {
+    return cache.jids;
+  }
+  const hint = groupHint.toLowerCase();
+  const matched = cache.jids.filter(jid => {
+    const subject = (cache.subjects[jid] || '').toLowerCase();
+    return subject.includes(hint);
+  });
+  return matched.length > 0 ? matched : cache.jids;
+}
+
 // Sliding window message history buffer per chat (group or DM) for contextual follow-up checks & missed tag scanning
 const recentChatMessages = new Map();
 
@@ -512,7 +553,7 @@ ${knowledgeContext}
 STRICT CONSTRAINTS & BEHAVIOR:
 1. Ultra-Concise & Direct: Keep all responses brief, direct, and concise (2-4 sentences max, or short bullet points for multi-step guidance). Avoid wordy intros, long filler, or conversational fluff.
 2. NO Boilerplate Outros / Trailing Explanations: NEVER append trailing summary paragraphs, promos, or canned intros explaining what you were created to do (e.g., "I'm PodPal BOT, created to assist..."). Just answer the question asked or execute the requested task directly (e.g., translating text, pointing to reference messages, or tagging admins).
-3. Grounded Accuracy: Answer only using facts in the knowledge base. If an event or meeting has concluded (date prior to current date), explicitly state that it has ended, provide any available recording/slides links, or refer the user to unipods.regional@undp.org.
+3. Grounded Accuracy & Strict Upcoming Deadlines Filter: Answer only using facts in the knowledge base. When asked about upcoming deadlines or cohort schedules, NEVER list or include past deadlines that have already passed relative to the current date/time. Focus strictly and exclusively on upcoming and active deadlines. If a past event or deadline is specifically inquired about, state clearly that it has concluded and provide any available recording/submission recap links.
 4. Natural Queries & Direct Task Execution: Participants ask questions or give commands naturally. When requested to perform a task (e.g., "translate this to French", "tag Gift here", "point me to the reference message"), execute the task immediately and directly without unnecessary fluff.
 5. Dynamic Per-Turn Language Switching: Automatically detect the language of the inbound prompt (English, French, Arabic, Amharic, etc.) on EACH turn and respond fluently in that exact same language.
 6. Proactive Screenshot Request: When a user asks about a technical error, login issue, or platform bug on MIT, Wadhwani, or Ethiopia AI portals that lacks error codes or specific context, proactively prompt: "To give you exact, tailored step-by-step guidance, could you please reply with a screenshot of the error or screen you are seeing?"
@@ -969,9 +1010,39 @@ async function startBot() {
       return;
     }
 
-    // Deadlines Command
+    // Deadlines Command (Dynamically filters out passed deadlines)
     if (cleanPrompt.toLowerCase() === '!deadlines' || cleanPrompt.toLowerCase() === '!schedule') {
-      const deadlinesText = `⏳ *Upcoming Cohort Milestones & Deadlines*:\n\n1. 🎬 *UN General Assembly Demo Video*: Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT)\n2. 🏆 *UniPods Chatbot Hackathon*: 18 Sept – 24 Sept 2026 ($5,000 Prize)\n3. 🎓 *MIT Universal AI Foundational Deadline*: Sunday, 18 October 2026\n4. 💡 *Weekly Open Hour*: Every Friday @ 3:00 PM CAT\n\nAll times formatted in CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.`;
+      const nowMs = Date.now();
+      const milestones = [
+        {
+          title: '🎬 *UN General Assembly Demo Video*',
+          dateStr: 'Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT)',
+          expiryMs: new Date('2026-09-18T14:00:00+02:00').getTime()
+        },
+        {
+          title: '🏆 *UniPods Chatbot Hackathon* ($5,000 Prize)',
+          dateStr: '18 Sept – 24 Sept 2026',
+          expiryMs: new Date('2026-09-24T23:59:59+02:00').getTime()
+        },
+        {
+          title: '🎓 *MIT Universal AI Foundational Deadline*',
+          dateStr: 'Sunday, 18 October 2026',
+          expiryMs: new Date('2026-10-18T23:59:59+02:00').getTime()
+        },
+        {
+          title: '💡 *Weekly Open Hour*',
+          dateStr: 'Every Friday @ 3:00 PM CAT',
+          expiryMs: Infinity // Recurring
+        }
+      ];
+
+      const upcoming = milestones.filter(m => m.expiryMs >= nowMs);
+      let deadlinesText = `⏳ *Upcoming Cohort Milestones & Deadlines*:\n\n`;
+      upcoming.forEach((m, idx) => {
+        deadlinesText += `${idx + 1}. ${m.title}: ${m.dateStr}\n`;
+      });
+      deadlinesText += `\nAll times formatted in CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.`;
+
       await sock.sendMessage(senderJid, { text: deadlinesText }, { quoted: msg });
       return;
     }
@@ -993,16 +1064,23 @@ async function startBot() {
     }
 
     // ----------------------------------------------------
-    // PIPELINE 2.1: POLL, EVENT & REMINDER CREATION ENGINE
-    // Permission: Group = Admins only | DM = Everyone
-    // Supports !poll, !event commands AND natural language
+    // PIPELINE 2.1: POLL, EVENT, POST & REMINDER CREATION ENGINE
+    // Permission: Group = Admins only | DM = Everyone (polls/events to self)
+    // Admin DMs can route polls/events/posts to groups via "to group" keyword
+    // Supports !poll, !event, !post commands AND natural language
     // ----------------------------------------------------
     const canCreatePollOrEvent = isGroup ? isFacilitator : true;
 
-    // !poll command: !poll "Question?" Option1 | Option2 | Option3
+    // Detect "to group" / "on the group" / "post on group" intent for admin DM → group routing
+    const wantsGroupDelivery = !isGroup && isFacilitator && /(to\s+(the\s+)?group|on\s+(the\s+)?group|post\s+(on|to|in)\s+(the\s+)?group|send\s+(to|on|in)\s+(the\s+)?group|in\s+the\s+group)/i.test(cleanLower);
+
+    // !poll command: !poll "Question?" Option1 | Option2 | Option3 [to group]
     if (cleanPrompt.toLowerCase().startsWith('!poll') && canCreatePollOrEvent) {
       try {
-        const pollBody = cleanPrompt.replace(/^!poll\s*/i, '').trim();
+        // Strip "to group" / "on the group" suffix before parsing poll body
+        let pollBody = cleanPrompt.replace(/^!poll\s*/i, '').trim();
+        pollBody = pollBody.replace(/\s*(to|on|in)\s+(the\s+)?group\s*$/i, '').trim();
+        
         // Parse: "Question?" Option1 | Option2 | Option3  OR  Question?\nOption1\nOption2\nOption3
         const quoteMatch = pollBody.match(/^[""](.+?)[""][\s,]*(.+)$/s) || pollBody.match(/^(.+?\?)\s*(.+)$/s);
         
@@ -1012,28 +1090,99 @@ async function startBot() {
           const options = optionsRaw.split(/[|\n]/).map(o => o.trim()).filter(o => o.length > 0);
           
           if (options.length >= 2 && options.length <= 12) {
-            const targetJid = isGroup ? senderJid : senderJid; // In DM, send poll to same chat
-            await sock.sendMessage(targetJid, {
-              poll: {
-                name: pollQuestion,
-                values: options,
-                selectableCount: 1
+            if (wantsGroupDelivery) {
+              // Admin DM → Send poll to all known groups
+              const groupJids = await resolveTargetGroups(sock, 'all');
+              if (groupJids.length === 0) {
+                await sock.sendMessage(senderJid, { text: '⚠️ No groups found. Make sure I am added to a WhatsApp group.' }, { quoted: msg });
+                return;
               }
-            });
-            if (!isGroup) {
-              await sock.sendMessage(senderJid, { text: '✅ Poll created!' }, { quoted: msg });
+              for (const gJid of groupJids) {
+                await sock.sendMessage(gJid, {
+                  poll: { name: pollQuestion, values: options, selectableCount: 1 }
+                });
+              }
+              const groupNames = groupJids.map(jid => knownGroupJidsCache.subjects[jid] || 'Group').join(', ');
+              await sock.sendMessage(senderJid, { text: `✅ Poll posted to ${groupJids.length} group(s): *${groupNames}*` }, { quoted: msg });
+            } else if (isGroup) {
+              // In group: post poll directly here
+              await sock.sendMessage(senderJid, {
+                poll: { name: pollQuestion, values: options, selectableCount: 1 }
+              });
+            } else {
+              // In DM without "to group": create poll in DM
+              await sock.sendMessage(senderJid, {
+                poll: { name: pollQuestion, values: options, selectableCount: 1 }
+              });
+              await sock.sendMessage(senderJid, { text: '✅ Poll created! To post it on the group instead, add *"to group"* at the end of your command.' }, { quoted: msg });
             }
             return;
           }
         }
         // If parsing failed, show usage help
         await sock.sendMessage(senderJid, {
-          text: `📊 *Poll Creation Format*:\n\n\`!poll "Your question?" Option 1 | Option 2 | Option 3\`\n\nExample:\n\`!poll "What day works for the next open hour?" Monday | Wednesday | Friday\`\n\n• Minimum 2 options, maximum 12\n• Separate options with \`|\` or new lines`
+          text: `📊 *Poll Creation Format*:\n\n\`!poll "Your question?" Option 1 | Option 2 | Option 3\`\n\n*To post on the group from DM (admins only):*\n\`!poll "Your question?" Option 1 | Option 2 | Option 3 to group\`\n\nExample:\n\`!poll "What day works for the next open hour?" Monday | Wednesday | Friday to group\`\n\n• Minimum 2 options, maximum 12\n• Separate options with \`|\` or new lines`
         }, { quoted: msg });
         return;
       } catch (err) {
         console.error('[Poll Creation Error]:', err);
         await sock.sendMessage(senderJid, { text: '⚠️ Failed to create poll. Please check the format and try again.' }, { quoted: msg });
+        return;
+      }
+    }
+
+    // !post command (Admin only): Send a message to the group with an optional footer signature
+    // Usage: !post "Message text here" - Gift Ntuli [to group]
+    // Or: !post Message text here - Diane
+    if (cleanPrompt.toLowerCase().startsWith('!post') && isFacilitator) {
+      try {
+        let postBody = cleanPrompt.replace(/^!post\s*/i, '').trim();
+        // Strip "to group" suffix
+        postBody = postBody.replace(/\s*(to|on|in)\s+(the\s+)?group\s*$/i, '').trim();
+
+        // Parse footer: "message text" - Footer Name  OR  message text - Footer Name
+        let messageText = '';
+        let footer = '';
+        const footerMatch = postBody.match(/^(.+?)\s*[-–—]\s*([\w\s]+)$/s);
+        if (footerMatch) {
+          messageText = footerMatch[1].replace(/^[""]|[""]$/g, '').trim();
+          footer = footerMatch[2].trim();
+        } else {
+          messageText = postBody.replace(/^[""]|[""]$/g, '').trim();
+          // Use admin's own name as footer
+          const adminEntry = FACILITATOR_MAP.find(a => a.jid === senderParticipant);
+          footer = adminEntry ? (adminEntry.name.charAt(0).toUpperCase() + adminEntry.name.slice(1)) : (validPushName || 'Admin');
+        }
+
+        if (!messageText) {
+          await sock.sendMessage(senderJid, {
+            text: `📝 *Post Message Format*:\n\n\`!post "Your message here" - Your Name\`\n\n*Examples:*\n\`!post "Please submit your demo videos by Friday 2PM CAT" - Gift Ntuli\`\n\`!post Important: MIT deadline is Oct 18 - Diane\`\n\nThe message will be sent to the group with your signature footer.`
+          }, { quoted: msg });
+          return;
+        }
+
+        const formattedPost = `${messageText}\n\n— *${footer}*`;
+
+        if (isGroup) {
+          // Posted directly in the group
+          await sock.sendMessage(senderJid, { text: formattedPost });
+        } else {
+          // Admin DM → Send to all groups
+          const groupJids = await resolveTargetGroups(sock, 'all');
+          if (groupJids.length === 0) {
+            await sock.sendMessage(senderJid, { text: '⚠️ No groups found. Make sure I am added to a WhatsApp group.' }, { quoted: msg });
+            return;
+          }
+          for (const gJid of groupJids) {
+            await sock.sendMessage(gJid, { text: formattedPost });
+          }
+          const groupNames = groupJids.map(jid => knownGroupJidsCache.subjects[jid] || 'Group').join(', ');
+          await sock.sendMessage(senderJid, { text: `✅ Message posted to ${groupJids.length} group(s): *${groupNames}*\n\nPreview:\n${formattedPost}` }, { quoted: msg });
+        }
+        return;
+      } catch (err) {
+        console.error('[Post Message Error]:', err);
+        await sock.sendMessage(senderJid, { text: '⚠️ Failed to post message. Please try again.' }, { quoted: msg });
         return;
       }
     }
@@ -1092,7 +1241,7 @@ async function startBot() {
     // Natural Language Poll/Event/Reminder Detection
     // Detects conversational requests like "create a poll about...", "set a reminder for...", "schedule an event..."
     const isPollIntent = canCreatePollOrEvent && /\b(create|make|start|launch|set up|setup|send|post)\b.{0,15}\b(poll|vote|survey|voting)\b/i.test(cleanLower);
-    const isEventIntent = canCreatePollOrEvent && /\b(create|make|schedule|set|plan|organize|set up|setup)\b.{0,15}\b(event|meeting|session|call|reminder|announcement)\b/i.test(cleanLower);
+    const isEventIntent = canCreatePollOrEvent && /\b(create|make|schedule|set|plan|organize|set up|setup)\b.{0,15}\b(event|meeting|session|call|announcement)\b/i.test(cleanLower);
     const isReminderIntent = canCreatePollOrEvent && /\b(remind|set.{0,6}reminder|remind me|remind us|remind the group|remind everyone|send.{0,6}reminder)\b/i.test(cleanLower);
 
     if (isPollIntent || isEventIntent || isReminderIntent) {
@@ -1107,8 +1256,8 @@ ${quotedMessageText ? `Quoted message context: "${quotedMessageText}"` : ''}
 
 Rules:
 - For polls: Output {"type":"poll","question":"...","options":["Option 1","Option 2",...]}. Must have 2-12 options.
-- For events: Output {"type":"event","title":"...","date":"ISO8601 date string","offsets":[30,5]}. If no date specified, use 30 minutes from now.
-- For reminders: Output {"type":"reminder","title":"...","date":"ISO8601 date string","offsets":[30,5]}. If no date, use 30 minutes from now.
+- For events: Output {"type":"event","title":"...","date":"ISO8601 date string","offsets":[30,5]}. Extract date/time from user message or quoted text. Extract requested reminder offsets in minutes (e.g. [60, 5]). Default offsets if unspecified: [30, 5].
+- For reminders: Output {"type":"reminder","title":"...","date":"ISO8601 date string","offsets":[5]}. Extract event/meeting date/time from user message or quoted context text. Extract requested reminder offset minutes into array (e.g. "5 minutes to the time" -> offsets: [5], "30m and 5m before" -> offsets: [30, 5]). If no date specified in message or quote, use 30 minutes from now.
 - If the user message is too vague to create any of the above, output {"type":"clarify","message":"...a short clarifying question..."}.
 
 Current time: ${new Date().toISOString()}
@@ -1168,7 +1317,7 @@ Respond with ONLY the JSON object, nothing else.`;
           const dateStr = parsed.date || new Date(Date.now() + 30 * 60 * 1000).toISOString();
           const offsets = parsed.offsets?.length > 0 ? parsed.offsets : [30, 5];
           
-          await createScheduledReminder(senderJid, title, dateStr, offsets);
+          await createScheduledReminder(senderJid, title, dateStr, offsets, isGroup ? senderJid : 'all');
           const eventDate = new Date(dateStr);
           const offsetDisplay = offsets.map(o => o >= 60 ? `${o/60}h` : `${o}m`).join(', ');
           await sock.sendPresenceUpdate('paused', senderJid);
