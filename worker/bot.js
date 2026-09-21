@@ -977,15 +977,222 @@ async function startBot() {
     }
 
     // Admin Private DM Reminder Command (!remind)
-    if (!isGroup && isFacilitator && cleanPrompt.toLowerCase().startsWith('!remind')) {
+    if (isFacilitator && cleanPrompt.toLowerCase().startsWith('!remind')) {
+      const canCreateInGroup = isGroup && isFacilitator;
+      const canCreateInDM = !isGroup;
+      if (canCreateInGroup || canCreateInDM) {
+        try {
+          await createScheduledReminder(senderJid, cleanPrompt.replace('!remind', '').trim(), new Date(Date.now() + 30 * 60 * 1000).toISOString(), [30, 5]);
+          await sock.sendMessage(senderJid, { text: '✅ Scheduled group reminder created and saved to database!' }, { quoted: msg });
+          return;
+        } catch (err) {
+          await sock.sendMessage(senderJid, { text: '⚠️ Failed to schedule reminder. Ensure date/time format is valid.' }, { quoted: msg });
+          return;
+        }
+      }
+    }
+
+    // ----------------------------------------------------
+    // PIPELINE 2.1: POLL, EVENT & REMINDER CREATION ENGINE
+    // Permission: Group = Admins only | DM = Everyone
+    // Supports !poll, !event commands AND natural language
+    // ----------------------------------------------------
+    const canCreatePollOrEvent = isGroup ? isFacilitator : true;
+
+    // !poll command: !poll "Question?" Option1 | Option2 | Option3
+    if (cleanPrompt.toLowerCase().startsWith('!poll') && canCreatePollOrEvent) {
       try {
-        await createScheduledReminder(senderJid, cleanPrompt.replace('!remind', '').trim(), new Date(Date.now() + 30 * 60 * 1000).toISOString(), [30, 5]);
-        await sock.sendMessage(senderJid, { text: '✅ Scheduled group reminder created and saved to database!' }, { quoted: msg });
+        const pollBody = cleanPrompt.replace(/^!poll\s*/i, '').trim();
+        // Parse: "Question?" Option1 | Option2 | Option3  OR  Question?\nOption1\nOption2\nOption3
+        const quoteMatch = pollBody.match(/^[""](.+?)[""][\s,]*(.+)$/s) || pollBody.match(/^(.+?\?)\s*(.+)$/s);
+        
+        if (quoteMatch) {
+          const pollQuestion = quoteMatch[1].trim();
+          const optionsRaw = quoteMatch[2].trim();
+          const options = optionsRaw.split(/[|\n]/).map(o => o.trim()).filter(o => o.length > 0);
+          
+          if (options.length >= 2 && options.length <= 12) {
+            const targetJid = isGroup ? senderJid : senderJid; // In DM, send poll to same chat
+            await sock.sendMessage(targetJid, {
+              poll: {
+                name: pollQuestion,
+                values: options,
+                selectableCount: 1
+              }
+            });
+            if (!isGroup) {
+              await sock.sendMessage(senderJid, { text: '✅ Poll created!' }, { quoted: msg });
+            }
+            return;
+          }
+        }
+        // If parsing failed, show usage help
+        await sock.sendMessage(senderJid, {
+          text: `📊 *Poll Creation Format*:\n\n\`!poll "Your question?" Option 1 | Option 2 | Option 3\`\n\nExample:\n\`!poll "What day works for the next open hour?" Monday | Wednesday | Friday\`\n\n• Minimum 2 options, maximum 12\n• Separate options with \`|\` or new lines`
+        }, { quoted: msg });
         return;
       } catch (err) {
-        await sock.sendMessage(senderJid, { text: '⚠️ Failed to schedule reminder. Ensure date/time format is valid.' }, { quoted: msg });
+        console.error('[Poll Creation Error]:', err);
+        await sock.sendMessage(senderJid, { text: '⚠️ Failed to create poll. Please check the format and try again.' }, { quoted: msg });
         return;
       }
+    }
+
+    // !event command: !event "Event Title" at 2026-10-01T15:00:00 remind 30m,5m
+    if (cleanPrompt.toLowerCase().startsWith('!event') && canCreatePollOrEvent) {
+      try {
+        const eventBody = cleanPrompt.replace(/^!event\s*/i, '').trim();
+        // Parse: "Title" at DATETIME remind OFFSETS
+        const eventMatch = eventBody.match(/^[""]?(.+?)[""]?\s+(?:at|on|@)\s+(.+?)(?:\s+remind\s+(.+))?$/i);
+
+        if (eventMatch) {
+          const eventTitle = eventMatch[1].trim();
+          const eventDateStr = eventMatch[2].trim();
+          const offsetStr = eventMatch[3]?.trim() || '30m,5m';
+
+          // Parse offsets (30m, 1h, 5m -> [30, 60, 5])
+          const offsets = offsetStr.split(/[,\s]+/).map(o => {
+            const hrs = o.match(/(\d+)h/i);
+            const mins = o.match(/(\d+)m/i);
+            if (hrs) return parseInt(hrs[1]) * 60;
+            if (mins) return parseInt(mins[1]);
+            return parseInt(o) || 30;
+          }).filter(n => n > 0);
+
+          // Parse date
+          let eventDate;
+          try {
+            eventDate = new Date(eventDateStr);
+            if (isNaN(eventDate.getTime())) throw new Error('Invalid date');
+          } catch {
+            await sock.sendMessage(senderJid, { text: '⚠️ Could not parse the event date. Use format: `2026-10-01T15:00:00` or `Oct 1, 2026 3:00 PM`' }, { quoted: msg });
+            return;
+          }
+
+          await createScheduledReminder(senderJid, eventTitle, eventDate.toISOString(), offsets.length > 0 ? offsets : [30, 5]);
+          const offsetDisplay = offsets.map(o => o >= 60 ? `${o/60}h` : `${o}m`).join(', ');
+          await sock.sendMessage(senderJid, {
+            text: `✅ *Event Scheduled!*\n\n📌 *${eventTitle}*\n📅 ${eventDate.toUTCString()}\n🔔 Reminders: ${offsetDisplay} before\n\nI will send reminders to the group automatically!`
+          }, { quoted: msg });
+          return;
+        }
+
+        // If parsing failed, show usage help
+        await sock.sendMessage(senderJid, {
+          text: `📅 *Event Creation Format*:\n\n\`!event "Event Title" at 2026-10-01T15:00:00 remind 30m,5m\`\n\nExample:\n\`!event "Weekly Open Hour" at 2026-10-03T15:00:00 remind 1h,30m,5m\`\n\n• Date format: ISO 8601 or natural (Oct 3, 2026 3:00 PM)\n• Remind offsets: 5m, 30m, 1h, 12h (comma-separated)`
+        }, { quoted: msg });
+        return;
+      } catch (err) {
+        console.error('[Event Creation Error]:', err);
+        await sock.sendMessage(senderJid, { text: '⚠️ Failed to create event. Please check the format and try again.' }, { quoted: msg });
+        return;
+      }
+    }
+
+    // Natural Language Poll/Event/Reminder Detection
+    // Detects conversational requests like "create a poll about...", "set a reminder for...", "schedule an event..."
+    const isPollIntent = canCreatePollOrEvent && /\b(create|make|start|launch|set up|setup|send|post)\b.{0,15}\b(poll|vote|survey|voting)\b/i.test(cleanLower);
+    const isEventIntent = canCreatePollOrEvent && /\b(create|make|schedule|set|plan|organize|set up|setup)\b.{0,15}\b(event|meeting|session|call|reminder|announcement)\b/i.test(cleanLower);
+    const isReminderIntent = canCreatePollOrEvent && /\b(remind|set.{0,6}reminder|remind me|remind us|remind the group|remind everyone|send.{0,6}reminder)\b/i.test(cleanLower);
+
+    if (isPollIntent || isEventIntent || isReminderIntent) {
+      try {
+        await sock.sendPresenceUpdate('composing', senderJid);
+        const intentType = isPollIntent ? 'poll' : isEventIntent ? 'event' : 'reminder';
+
+        const structuredPrompt = `The user wants to create a ${intentType}. Parse their request and output ONLY a valid JSON object (no markdown, no code fences, no explanation).
+
+User message: "${cleanPrompt}"
+${quotedMessageText ? `Quoted message context: "${quotedMessageText}"` : ''}
+
+Rules:
+- For polls: Output {"type":"poll","question":"...","options":["Option 1","Option 2",...]}. Must have 2-12 options.
+- For events: Output {"type":"event","title":"...","date":"ISO8601 date string","offsets":[30,5]}. If no date specified, use 30 minutes from now.
+- For reminders: Output {"type":"reminder","title":"...","date":"ISO8601 date string","offsets":[30,5]}. If no date, use 30 minutes from now.
+- If the user message is too vague to create any of the above, output {"type":"clarify","message":"...a short clarifying question..."}.
+
+Current time: ${new Date().toISOString()}
+Respond with ONLY the JSON object, nothing else.`;
+
+        const systemInstruction = 'You are a structured data extraction assistant. Output ONLY valid JSON. No markdown, no code fences, no explanation text.';
+        let aiResponse;
+        try {
+          aiResponse = await callAiWithFallbackChain(structuredPrompt, systemInstruction);
+        } catch {
+          // If AI fails, fall back to showing command usage
+          const helpText = isPollIntent
+            ? `📊 To create a poll, use:\n\`!poll "Your question?" Option 1 | Option 2 | Option 3\``
+            : `📅 To create an event, use:\n\`!event "Event Title" at 2026-10-01T15:00:00 remind 30m,5m\``;
+          await sock.sendPresenceUpdate('paused', senderJid);
+          await sock.sendMessage(senderJid, { text: helpText }, { quoted: msg });
+          return;
+        }
+
+        // Clean up AI response — strip code fences if present
+        const jsonStr = (aiResponse || '').replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+        let parsed;
+        try {
+          parsed = JSON.parse(jsonStr);
+        } catch {
+          await sock.sendPresenceUpdate('paused', senderJid);
+          await sock.sendMessage(senderJid, { text: `I understood you want to create a ${intentType}, but I need a bit more detail. Could you provide the specific question/title and options?` }, { quoted: msg });
+          return;
+        }
+
+        // Handle parsed intent
+        if (parsed.type === 'clarify') {
+          await sock.sendPresenceUpdate('paused', senderJid);
+          await sock.sendMessage(senderJid, { text: parsed.message || `Could you provide more details for the ${intentType}?` }, { quoted: msg });
+          return;
+        }
+
+        if (parsed.type === 'poll' && parsed.question && parsed.options?.length >= 2) {
+          const pollOptions = parsed.options.slice(0, 12);
+          const targetJid = isGroup ? senderJid : senderJid;
+          await sock.sendMessage(targetJid, {
+            poll: {
+              name: parsed.question,
+              values: pollOptions,
+              selectableCount: 1
+            }
+          });
+          await sock.sendPresenceUpdate('paused', senderJid);
+          if (!isGroup) {
+            await sock.sendMessage(senderJid, { text: `✅ Poll created with ${pollOptions.length} options!` }, { quoted: msg });
+          }
+          return;
+        }
+
+        if (parsed.type === 'event' || parsed.type === 'reminder') {
+          const title = parsed.title || 'Cohort Event';
+          const dateStr = parsed.date || new Date(Date.now() + 30 * 60 * 1000).toISOString();
+          const offsets = parsed.offsets?.length > 0 ? parsed.offsets : [30, 5];
+          
+          await createScheduledReminder(senderJid, title, dateStr, offsets);
+          const eventDate = new Date(dateStr);
+          const offsetDisplay = offsets.map(o => o >= 60 ? `${o/60}h` : `${o}m`).join(', ');
+          await sock.sendPresenceUpdate('paused', senderJid);
+          await sock.sendMessage(senderJid, {
+            text: `✅ *${parsed.type === 'event' ? 'Event' : 'Reminder'} Scheduled!*\n\n📌 *${title}*\n📅 ${eventDate.toUTCString()}\n🔔 Reminders: ${offsetDisplay} before`
+          }, { quoted: msg });
+          return;
+        }
+
+        // Fallback if parsed but unrecognized
+        await sock.sendPresenceUpdate('paused', senderJid);
+      } catch (nlErr) {
+        console.error('[Natural Language Poll/Event Error]:', nlErr);
+      }
+    }
+
+    // Non-admin poll/event attempt in groups → politely decline
+    if (isGroup && !isFacilitator && /\b(create|make|start|launch|send|post)\b.{0,15}\b(poll|vote|survey|event|meeting|reminder)\b/i.test(cleanLower)) {
+      await sock.sendPresenceUpdate('paused', senderJid);
+      await sock.sendMessage(senderJid, {
+        text: `📊 Only program admins can create polls, events, and reminders in the group chat. You can create them in a private DM with me! Just send me a message like "create a poll about..." 😊`,
+        mentions: [senderParticipant]
+      }, { quoted: msg });
+      return;
     }
 
     // ----------------------------------------------------
