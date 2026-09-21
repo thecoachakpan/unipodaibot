@@ -555,7 +555,14 @@ STRICT CONSTRAINTS & BEHAVIOR:
 2. NO Boilerplate Outros / Trailing Explanations: NEVER append trailing summary paragraphs, promos, or canned intros explaining what you were created to do (e.g., "I'm PodPal BOT, created to assist..."). Just answer the question asked or execute the requested task directly (e.g., translating text, pointing to reference messages, or tagging admins).
 3. Grounded Accuracy & Strict Upcoming Deadlines Filter: Answer only using facts in the knowledge base. When asked about upcoming deadlines or cohort schedules, NEVER list or include past deadlines that have already passed relative to the current date/time. Focus strictly and exclusively on upcoming and active deadlines. If a past event or deadline is specifically inquired about, state clearly that it has concluded and provide any available recording/submission recap links.
 4. Natural Queries & Direct Task Execution: Participants ask questions or give commands naturally. When requested to perform a task (e.g., "translate this to French", "tag Gift here", "point me to the reference message"), execute the task immediately and directly without unnecessary fluff.
-5. Dynamic Per-Turn Language Switching: Automatically detect the language of the inbound prompt (English, French, Arabic, Amharic, etc.) on EACH turn and respond fluently in that exact same language.
+5. DYNAMIC PER-TURN LANGUAGE MATCHING (PRIMARY DEFAULT LANGUAGE: ENGLISH):
+   - Primary default language for all responses and sessions is ENGLISH.
+   - Standard Questions: Respond to English questions in ENGLISH. Respond to French questions in FRENCH.
+   - QUOTED TRANSLATION REQUESTS (NO PERMANENT LANGUAGE SWITCHING):
+     - When a participant quotes ANY message (from PodPal BOT, another participant, or an admin) and asks to translate it (e.g. "translate this to French", "translate to French"):
+       - Provide the French translation of that specific quoted message for that response ONLY.
+       - DO NOT switch or lock the user's ongoing session or future default language to French.
+       - If the participant's subsequent question is in English, you MUST respond in ENGLISH.
 6. Proactive Screenshot Request: When a user asks about a technical error, login issue, or platform bug on MIT, Wadhwani, or Ethiopia AI portals that lacks error codes or specific context, proactively prompt: "To give you exact, tailored step-by-step guidance, could you please reply with a screenshot of the error or screen you are seeing?"
 7. Missed Meeting Assistance: When users inquire about past meetings, offer to provide executive summaries and key action items from the session transcript.
 8. WhatsApp Formatting: Use *single asterisks* for bold. Do NOT output double asterisks (**).
@@ -966,24 +973,33 @@ async function startBot() {
     // 3. Mentions of a facilitator/admin IN AN ACTUAL QUESTION (mentionsAdmin && isQuestionOrInquiry)
     // 4. Fresh unquoted program-related questions (isQuestionOrInquiry when NOT replying to another participant)
     const isQuotedPeerReply = isGroup && !isQuotedBotReply && !!contextInfo?.quotedMessage;
+    const isQuotedAnyReply = isGroup && !!contextInfo?.quotedMessage;
     const isQuestionMentioningAdmin = mentionsAdmin && isQuestionOrInquiry;
+    const isCommandOrAction = cleanPrompt.startsWith('!') || /(translate|traduire|traduis|send.*privately|send.*dm|summarize|remind|poll|event|post)/i.test(cleanLower);
 
     if (isGroup) {
       if (runtimeConfig.chat_scope === 'private_only') return;
 
-      // Multimodal messages (images, audio/voice notes) in groups are always processed
-      // when the bot is tagged, quote-replied, or the participant sends standalone media
+      // Group chat processing triggers:
+      // 1. Tagged or mentioned (@bot, !ask, podpal, bot, or native @mention)
+      // 2. Direct replies to bot messages OR quote replies to peer/admin messages
+      // 3. Questions mentioning facilitators/admins
+      // 4. Fresh unquoted program-related questions
+      // 5. Multimodal messages (images, audio/voice notes)
+      // 6. Explicit commands (!poll, !event, !post) or translation/DM requests
       const isMultimodalMessage = isImage || isAudio;
-      const isFreshQuestion = isQuestionOrInquiry && !isQuotedPeerReply;
-      const shouldRespondInGroup = isTagged || isQuestionMentioningAdmin || isQuotedBotReply || isFreshQuestion || isMultimodalMessage;
+      const isFreshQuestion = isQuestionOrInquiry;
+      const shouldRespondInGroup = isTagged || isQuestionMentioningAdmin || isQuotedBotReply || isQuotedAnyReply || isFreshQuestion || isMultimodalMessage || isCommandOrAction;
 
       if (!shouldRespondInGroup) return;
     }
 
-    // Per-user cooldown jitter (15s)
+    // Cooldown guard: Bypass cooldown completely for explicit triggers (tags, quote replies, commands, translation/DM requests)
     const now = Date.now();
     const lastUserTime = userCooldowns.get(senderParticipant) || 0;
-    if (isGroup && now - lastUserTime < 15000) return;
+    const isExplicitTrigger = isTagged || isQuotedBotReply || isQuotedAnyReply || isCommandOrAction;
+
+    if (isGroup && !isExplicitTrigger && (now - lastUserTime < 3000)) return;
     userCooldowns.set(senderParticipant, now);
 
     // ----------------------------------------------------
@@ -1557,6 +1573,15 @@ Respond with ONLY the JSON object, nothing else.`;
 
       replyText = formatWhatsAppMarkdown(replyText || 'Unable to generate response.');
       bufferChatMessage(senderJid, rawBotId, 'PodPal BOT', replyText, true);
+
+      // Save sliding window session turn for DM conversations
+      if (!isGroup) {
+        const isTranslationTurn = /(translate|traduire|traduis)/i.test(cleanPrompt);
+        const historyUserText = isTranslationTurn
+          ? `${cleanPrompt} [Note: Participant requested a translation turn for quoted text. Primary conversation language remains English.]`
+          : cleanPrompt;
+        updateSessionHistory(senderJid, historyUserText, replyText);
+      }
 
       // ----------------------------------------------------
       // PIPELINE 4: SMART GROUP-TO-DM ROUTING EVALUATION
