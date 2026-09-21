@@ -936,7 +936,7 @@ async function startBot() {
     const contextParticipant = contextInfo?.participant || '';
 
     // Check if the user is an admin across all candidate fields (including LID-resolved JID)
-    const isFacilitator = isAdminParticipant([
+    let isFacilitator = isAdminParticipant([
       resolvedParticipant,
       rawParticipant,
       senderJid,
@@ -948,6 +948,32 @@ async function startBot() {
       || getCleanPhoneNumber(rawParticipant)
       || getCleanPhoneNumber(senderJid)
       || getCleanPhoneNumber(contextParticipant);
+
+    // LID Guard: WhatsApp LID numbers are typically 18+ digits.
+    // Real international phone numbers are ≤15 digits (ITU-T E.164 standard).
+    // Discard LID-derived numbers to prevent wrong tags, failed DMs, and broken admin detection.
+    if (cleanSenderNum && cleanSenderNum.length > 15) {
+      console.warn(`[LID Guard] Discarding LID-derived number (${cleanSenderNum.length} digits): ${cleanSenderNum}`);
+      cleanSenderNum = '';
+    }
+
+    // PushName-based Admin Fallback: If LID resolution failed but the user's WhatsApp
+    // profile name matches a known facilitator, force admin recognition and recover phone number.
+    const validPushName = getValidPushName(msg);
+    if (!isFacilitator && validPushName) {
+      const pushNameLower = validPushName.toLowerCase().trim();
+      const pushNameFirstWord = pushNameLower.split(/\s+/)[0];
+      const nameMatch = FACILITATOR_MAP.find(a =>
+        pushNameLower.includes(a.name) || a.name.includes(pushNameFirstWord)
+      );
+      if (nameMatch) {
+        isFacilitator = true;
+        if (!cleanSenderNum) {
+          cleanSenderNum = nameMatch.jid.split('@')[0];
+        }
+        console.log(`[PushName Admin Fallback] Matched "${validPushName}" to facilitator "${nameMatch.name}" (${nameMatch.jid})`);
+      }
+    }
 
     // Build clean target DM JID
     const targetDmJid = cleanSenderNum ? `${cleanSenderNum}@s.whatsapp.net` : null;
@@ -1064,7 +1090,6 @@ async function startBot() {
       } catch (replyErr) {}
     }
 
-    const validPushName = getValidPushName(msg);
     let cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').replace(/podpal/gi, '').replace(/bot/gi, '').trim();
     
     // Buffer incoming message into chat sliding window
@@ -1618,8 +1643,17 @@ Respond with ONLY the JSON object, nothing else.`;
           if (isGroup) {
             let dmSentSuccess = false;
 
-            // Attempt private DM delivery if we resolved a valid phone JID
-            if (targetDmJid) {
+            // Detect explicit "send here / in group" intent — skip DM routing entirely
+            const wantsDocHere = /(here|in\s+(the\s+)?group|on\s+(the\s+)?group|upload\s+here|post\s+here|drop\s+here|share\s+here|send\s+here)/i.test(cleanLower);
+
+            // Only attempt private DM if:
+            // 1. User did NOT ask for in-group delivery ("here"/"in group")
+            // 2. We have a valid phone-based DM JID (not LID-derived, ≤15 digits)
+            // 3. User has an active DM session with the bot
+            const hasValidDmTarget = targetDmJid && cleanSenderNum && cleanSenderNum.length <= 15;
+            const userHasDMForDoc = hasValidDmTarget && hasActiveDMSession(targetDmJid);
+
+            if (!wantsDocHere && hasValidDmTarget && userHasDMForDoc) {
               try {
                 await sock.sendMessage(targetDmJid, {
                   document: pdfBuffer,
@@ -1635,13 +1669,11 @@ Respond with ONLY the JSON object, nothing else.`;
 
             await sock.sendPresenceUpdate('paused', senderJid);
 
-            // Build mention arrays: both raw participant and normalized user JID
-            const mentionsList = Array.from(new Set([
-              rawParticipant, 
-              targetDmJid || rawParticipant
-            ].filter(Boolean)));
+            // Build mention arrays: use only phone-based JIDs (never raw LID JIDs)
+            const phoneBasedJid = targetDmJid || (resolvedParticipant && !resolvedParticipant.includes('@lid') ? resolvedParticipant : null);
+            const mentionsList = phoneBasedJid ? [phoneBasedJid] : [rawParticipant];
 
-            const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : `@participant`;
+            const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : (validPushName || '@participant');
 
             if (dmSentSuccess) {
               // Confirm in group with working native tag
@@ -1650,7 +1682,7 @@ Respond with ONLY the JSON object, nothing else.`;
                 mentions: mentionsList
               }, { quoted: msg });
             } else {
-              // Fallback: Send directly into group so user always receives the file
+              // Upload directly into group so user always receives the file
               await sock.sendMessage(senderJid, {
                 document: pdfBuffer,
                 fileName: targetDoc.file_name,
@@ -1839,7 +1871,9 @@ Respond with ONLY the JSON object, nothing else.`;
         const dmCheckJid = targetDmJid || senderParticipant;
         const userHasDM = hasActiveDMSession(dmCheckJid);
         const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : (validPushName || '@participant');
-        const mentionJids = Array.from(new Set([rawParticipant, targetDmJid || rawParticipant].filter(Boolean)));
+        // Use only phone-based JIDs for mentions (never raw LID JIDs)
+        const dmPhoneJid = targetDmJid || (resolvedParticipant && !resolvedParticipant.includes('@lid') ? resolvedParticipant : null);
+        const mentionJids = dmPhoneJid ? [dmPhoneJid] : [rawParticipant];
 
         if (userHasDM && targetDmJid) {
           // Route detailed response to DM using resolved phone JID
