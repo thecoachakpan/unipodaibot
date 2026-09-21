@@ -737,9 +737,20 @@ async function startBot() {
     // PIPELINE 0: MESSAGE REVOCATION ENGINE (!delete / !revoke)
     // ----------------------------------------------------
     const contextInfo = msg.message.extendedTextMessage?.contextInfo ||
+                        msg.message.imageMessage?.contextInfo ||
+                        msg.message.audioMessage?.contextInfo ||
+                        msg.message.documentMessage?.contextInfo ||
+                        msg.message.videoMessage?.contextInfo ||
+                        msg.message.buttonsResponseMessage?.contextInfo ||
+                        msg.message.listResponseMessage?.contextInfo ||
                         msg.message.conversation?.contextInfo;
     const quotedMsgKey = contextInfo?.stanzaId;
-    const rawText = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || '';
+    // Extract the text content of the quoted (referenced) message, if any
+    const quotedMessageText = contextInfo?.quotedMessage?.conversation ||
+                              contextInfo?.quotedMessage?.extendedTextMessage?.text ||
+                              contextInfo?.quotedMessage?.imageMessage?.caption ||
+                              contextInfo?.quotedMessage?.documentMessage?.caption || '';
+    const rawText = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || msg.message.documentMessage?.caption || '';
     const cleanLower = rawText.trim().toLowerCase();
 
     if (isFacilitator && (cleanLower === '!delete' || cleanLower === '!revoke') && quotedMsgKey) {
@@ -1145,10 +1156,16 @@ async function startBot() {
       }
       // Group Context Single-Turn vs DM Sliding Window
       else if (isGroup) {
-        contentsPayload = `${senderIdentityHeader}\n${promptWithFollowupContext}\n\n${getLiveTimestampContext()}`;
+        // If user is quote-replying to a message, inject the quoted text for context
+        let quotedContext = '';
+        if (quotedMessageText) {
+          quotedContext = `\n[Quoted/Referenced Message the participant is replying to: "${quotedMessageText}"]`;
+        }
+        contentsPayload = `${senderIdentityHeader}${quotedContext}\n${promptWithFollowupContext}\n\n${getLiveTimestampContext()}`;
       } else {
         const pastTurns = getSessionHistory(senderJid);
-        contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: `${senderIdentityHeader}\n${promptWithFollowupContext}\n\n${getLiveTimestampContext()}` }] }];
+        let dmQuotedContext = quotedMessageText ? `\n[Quoted/Referenced Message: "${quotedMessageText}"]` : '';
+        contentsPayload = [...pastTurns, { role: 'user', parts: [{ text: `${senderIdentityHeader}${dmQuotedContext}\n${promptWithFollowupContext}\n\n${getLiveTimestampContext()}` }] }];
       }
 
       // 3-Tier AI Pipeline Execution: Primary (Gemini 2.5 Flash-Lite) -> 1st Fallback (Gemini 3.1 Flash-Lite) -> 2nd Fallback (Gemini 3.5 Flash-Lite)
@@ -1167,15 +1184,20 @@ async function startBot() {
       // ----------------------------------------------------
       // PIPELINE 4: SMART GROUP-TO-DM ROUTING EVALUATION
       // ----------------------------------------------------
-      const isParticipantSpecific = cleanPrompt.toLowerCase().includes('my account') ||
-                                     cleanPrompt.toLowerCase().includes('my credential') ||
-                                     cleanPrompt.toLowerCase().includes('my score') ||
-                                     cleanPrompt.toLowerCase().includes('in dm') ||
-                                     cleanPrompt.toLowerCase().includes('to my dm') ||
-                                     cleanPrompt.toLowerCase().includes('in private') ||
-                                     cleanPrompt.toLowerCase().includes('privately') ||
-                                     cleanPrompt.toLowerCase().includes('send me in dm') ||
-                                     cleanPrompt.toLowerCase().includes('send to my dm');
+      const combinedText = `${cleanPrompt} ${rawText}`.toLowerCase();
+      const isParticipantSpecific = combinedText.includes('my account') ||
+                                     combinedText.includes('my credential') ||
+                                     combinedText.includes('my score') ||
+                                     combinedText.includes('in dm') ||
+                                     combinedText.includes('to my dm') ||
+                                     combinedText.includes('in private') ||
+                                     combinedText.includes('privately') ||
+                                     combinedText.includes('send me in dm') ||
+                                     combinedText.includes('send to my dm') ||
+                                     combinedText.includes('send this to me') ||
+                                     combinedText.includes('send privately') ||
+                                     combinedText.includes('dm me') ||
+                                     combinedText.includes('send to dm');
 
       if (isGroup && isParticipantSpecific) {
         const userHasDM = hasActiveDMSession(senderParticipant);
