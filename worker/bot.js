@@ -12,7 +12,8 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   initAuthCreds,
-  BufferJSON
+  BufferJSON,
+  jidNormalizedUser
 } from '@whiskeysockets/baileys';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
@@ -219,11 +220,25 @@ const FACILITATOR_CORE_NUMBERS = [
 ];
 
 /**
- * Extracts clean digits from WhatsApp JID stripping device suffixes (:0, :12) and domains.
+ * Extracts digits only from standard phone JIDs.
+ * Ignores LIDs (@lid) to prevent false phone matching.
  */
 function getCleanPhoneNumber(jidStr) {
   if (!jidStr || typeof jidStr !== 'string') return '';
+  if (jidStr.includes('@lid')) return '';
   return jidStr.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+}
+
+/**
+ * Normalizes JID to standard user format (strips :device suffixes).
+ */
+function getNormalizedJid(jidStr) {
+  if (!jidStr || typeof jidStr !== 'string') return '';
+  try {
+    return jidNormalizedUser(jidStr);
+  } catch {
+    return jidStr.split(':')[0] + (jidStr.includes('@') ? '@' + jidStr.split('@')[1] : '');
+  }
 }
 
 /**
@@ -237,13 +252,21 @@ function getMentionDetails(jidStr) {
 }
 
 /**
- * Robustly checks if a sender JID or participant JID belongs to a verified cohort facilitator.
+ * Checks all possible candidate JIDs for an admin match.
  */
-function isAdminParticipant(jidStr) {
-  if (!jidStr) return false;
-  const num = getCleanPhoneNumber(jidStr);
-  if (!num) return false;
-  return FACILITATOR_CORE_NUMBERS.some(core => num.endsWith(core));
+function isAdminParticipant(candidates = []) {
+  const candidateArr = Array.isArray(candidates) ? candidates : [candidates];
+  for (const rawJid of candidateArr) {
+    if (!rawJid || typeof rawJid !== 'string') continue;
+
+    const normalized = getNormalizedJid(rawJid);
+    const cleanNum = getCleanPhoneNumber(normalized) || getCleanPhoneNumber(rawJid);
+
+    if (cleanNum && FACILITATOR_CORE_NUMBERS.some(core => cleanNum.endsWith(core))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -826,9 +849,10 @@ async function startBot() {
     if (!runtimeConfig.is_active) return; // Master Kill Switch
 
     const senderJid = msg.key.remoteJid;
-    const senderParticipant = msg.key.participant || senderJid;
     const isGroup = senderJid.endsWith('@g.us');
-    const isFacilitator = isAdminParticipant(senderParticipant) || isAdminParticipant(senderJid);
+
+    const rawParticipant = msg.key.participant || senderJid;
+    const altParticipant = msg.key.participantAlt || msg.key.remoteJidAlt || '';
 
     const messageType = Object.keys(msg.message || {})[0];
     const isAudio = messageType === 'audioMessage';
@@ -846,6 +870,26 @@ async function startBot() {
                         msg.message.buttonsResponseMessage?.contextInfo ||
                         msg.message.listResponseMessage?.contextInfo ||
                         msg.message.conversation?.contextInfo;
+
+    const contextParticipant = contextInfo?.participant || '';
+
+    // Check if the user is an admin across all candidate fields
+    const isFacilitator = isAdminParticipant([
+      rawParticipant,
+      altParticipant,
+      senderJid,
+      contextParticipant
+    ]);
+
+    // Resolve true phone number
+    let cleanSenderNum = getCleanPhoneNumber(rawParticipant) 
+      || getCleanPhoneNumber(altParticipant) 
+      || getCleanPhoneNumber(senderJid)
+      || getCleanPhoneNumber(contextParticipant);
+
+    // Build clean target DM JID
+    const targetDmJid = cleanSenderNum ? `${cleanSenderNum}@s.whatsapp.net` : null;
+    const senderParticipant = rawParticipant;
     const quotedMsgKey = contextInfo?.stanzaId;
     // Extract the text content of the quoted (referenced) message, if any
     const quotedMessageText = contextInfo?.quotedMessage?.conversation ||
@@ -1497,7 +1541,6 @@ Respond with ONLY the JSON object, nothing else.`;
       const matchResult = await matchRequestedDocument(cleanLower, conversationContext, supabase);
 
       // CASE 1: MATCHED AN AVAILABLE DOCUMENT -> Upload Native Document Attachment
-      // In groups: route the document to participant's DM to avoid cluttering the group
       if (matchResult.status === 'MATCHED_AVAILABLE' && matchResult.doc) {
         try {
           await sock.sendPresenceUpdate('composing', senderJid);
@@ -1511,30 +1554,51 @@ Respond with ONLY the JSON object, nothing else.`;
           }
 
           if (isGroup) {
-            // Route document to participant's private DM
-            const userHasDMForDoc = hasActiveDMSession(senderParticipant);
-            if (userHasDMForDoc) {
-              await sock.sendMessage(senderParticipant, {
+            let dmSentSuccess = false;
+
+            // Attempt private DM delivery if we resolved a valid phone JID
+            if (targetDmJid) {
+              try {
+                await sock.sendMessage(targetDmJid, {
+                  document: pdfBuffer,
+                  fileName: targetDoc.file_name,
+                  mimetype: 'application/pdf',
+                  caption: `📄 *${targetDoc.title}*\n\nHere is your official document requested in the group!`
+                });
+                dmSentSuccess = true;
+              } catch (dmSendErr) {
+                console.error('[Document DM Delivery Error - Falling back to group]:', dmSendErr);
+              }
+            }
+
+            await sock.sendPresenceUpdate('paused', senderJid);
+
+            // Build mention arrays: both raw participant and normalized user JID
+            const mentionsList = Array.from(new Set([
+              rawParticipant, 
+              targetDmJid || rawParticipant
+            ].filter(Boolean)));
+
+            const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : `@participant`;
+
+            if (dmSentSuccess) {
+              // Confirm in group with working native tag
+              await sock.sendMessage(senderJid, {
+                text: `📄 ${displayTag}, I've sent *${targetDoc.title}* directly to your private DM! Check your chat with me. 😊`,
+                mentions: mentionsList
+              }, { quoted: msg });
+            } else {
+              // Fallback: Send directly into group so user always receives the file
+              await sock.sendMessage(senderJid, {
                 document: pdfBuffer,
                 fileName: targetDoc.file_name,
                 mimetype: 'application/pdf',
-                caption: `📄 *${targetDoc.title}*\n\nHere is your official document sent privately to your DM!`
-              });
-              await sock.sendPresenceUpdate('paused', senderJid);
-              await sock.sendMessage(senderJid, {
-                text: `📄 @${senderParticipant.split('@')[0]}, I've sent *${targetDoc.title}* to your DM! Check your private chat with me. 😊`,
-                mentions: [senderParticipant]
-              }, { quoted: msg });
-            } else {
-              // User has no prior DM session — prompt them to open DM first
-              await sock.sendPresenceUpdate('paused', senderJid);
-              await sock.sendMessage(senderJid, {
-                text: `📄 @${senderParticipant.split('@')[0]}, I have the *${targetDoc.title}* ready! Please send me *"Hi"* in a private DM so I can deliver the document directly to you.`,
-                mentions: [senderParticipant]
+                caption: `📄 ${displayTag}, here is *${targetDoc.title}*!`,
+                mentions: mentionsList
               }, { quoted: msg });
             }
           } else {
-            // In DM: send document directly
+            // In 1-on-1 DM: Deliver directly to senderJid
             await sock.sendMessage(senderJid, {
               document: pdfBuffer,
               fileName: targetDoc.file_name,
