@@ -399,17 +399,15 @@ async function clearSupabaseAuthState(supabaseClient) {
 }
 
 /**
- * Executes AI inference using a 3-tier Gemini fallback chain:
- * 1. Primary: Gemini API -> gemini-2.5-flash-lite
- * 2. 1st Fallback: Gemini API -> gemini-3.1-flash-lite
- * 3. 2nd Fallback: Gemini API -> gemini-3.5-flash-lite
+ * Executes AI inference using a Gemini fallback chain:
+ * 1. Primary: Gemini API -> gemini-3.1-flash-lite
+ * 2. Fallback: Gemini API -> gemini-3.5-flash-lite
  */
 async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
-  const PRIMARY_MODEL = 'gemini-2.5-flash-lite';
-  const FALLBACK_1_MODEL = 'gemini-3.1-flash-lite';
-  const FALLBACK_2_MODEL = 'gemini-3.5-flash-lite';
+  const PRIMARY_MODEL = 'gemini-3.1-flash-lite';
+  const FALLBACK_1_MODEL = 'gemini-3.5-flash-lite';
 
-  // --- Tier 1: Primary Model (gemini-2.5-flash-lite via Gemini API) ---
+  // --- Tier 1: Primary Model (gemini-3.1-flash-lite via Gemini API) ---
   try {
     console.log(`[AI Pipeline] Calling Primary Model: ${PRIMARY_MODEL} (Gemini API)...`);
     const response = await ai.models.generateContent({
@@ -427,12 +425,12 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
       return response.text;
     }
   } catch (err) {
-    console.warn(`[AI Pipeline] ⚠️ Primary Model (${PRIMARY_MODEL}) failed: ${err?.message || err}. Transitioning to 1st Fallback model (${FALLBACK_1_MODEL})...`);
+    console.warn(`[AI Pipeline] ⚠️ Primary Model (${PRIMARY_MODEL}) failed: ${err?.message || err}. Transitioning to Fallback model (${FALLBACK_1_MODEL})...`);
   }
 
-  // --- Tier 2: 1st Fallback Model (gemini-3.1-flash-lite via Gemini API) ---
+  // --- Tier 2: Fallback Model (gemini-3.5-flash-lite via Gemini API) ---
   try {
-    console.log(`[AI Pipeline] Calling 1st Fallback Model: ${FALLBACK_1_MODEL} (Gemini API)...`);
+    console.log(`[AI Pipeline] Calling Fallback Model: ${FALLBACK_1_MODEL} (Gemini API)...`);
     const response = await ai.models.generateContent({
       model: FALLBACK_1_MODEL,
       contents: contentsPayload,
@@ -444,32 +442,11 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
     if (response?.text) {
       const um = response.usageMetadata;
       if (um) console.log(`[Gemini Cache ${FALLBACK_1_MODEL}] Input: ${um.promptTokenCount}, Cached: ${um.cachedContentTokenCount || 0}, Output: ${um.candidatesTokenCount}`);
-      console.log(`[AI Pipeline] 🟢 1st Fallback Model (${FALLBACK_1_MODEL}) succeeded!`);
+      console.log(`[AI Pipeline] 🟢 Fallback Model (${FALLBACK_1_MODEL}) succeeded!`);
       return response.text;
     }
   } catch (err) {
-    console.warn(`[AI Pipeline] ⚠️ 1st Fallback Model (${FALLBACK_1_MODEL}) failed: ${err?.message || err}. Transitioning to 2nd Fallback model (${FALLBACK_2_MODEL})...`);
-  }
-
-  // --- Tier 3: 2nd Fallback Model (gemini-3.5-flash-lite via Gemini API) ---
-  try {
-    console.log(`[AI Pipeline] Calling 2nd Fallback Model: ${FALLBACK_2_MODEL} (Gemini API)...`);
-    const response = await ai.models.generateContent({
-      model: FALLBACK_2_MODEL,
-      contents: contentsPayload,
-      config: {
-        systemInstruction,
-        temperature: 0.2,
-      }
-    });
-    if (response?.text) {
-      const um = response.usageMetadata;
-      if (um) console.log(`[Gemini Cache ${FALLBACK_2_MODEL}] Input: ${um.promptTokenCount}, Cached: ${um.cachedContentTokenCount || 0}, Output: ${um.candidatesTokenCount}`);
-      console.log(`[AI Pipeline] 🟢 2nd Fallback Model (${FALLBACK_2_MODEL}) succeeded!`);
-      return response.text;
-    }
-  } catch (err) {
-    console.error(`[AI Pipeline] ❌ 2nd Fallback Model (${FALLBACK_2_MODEL}) failed: ${err?.message || err}`);
+    console.error(`[AI Pipeline] ❌ Fallback Model (${FALLBACK_1_MODEL}) failed: ${err?.message || err}`);
     throw err;
   }
 
@@ -655,7 +632,7 @@ STRICT CONSTRAINTS & BEHAVIOR:
 14. Unverified Facts: If an answer cannot be verified, inform the user in their language:
    - English: "I don't have verified information on this yet. Please contact the team at unipods.regional@undp.org."
    - French: "Je n'ai pas encore d'informations vérifiées à ce sujet. Veuillez contacter l'équipe à unipods.regional@undp.org."
-15. NO External Drive Links & Native Document Uploads: Never output raw Google Drive web links in text responses.
+15. NO External Drive Links & Always Native Document Uploads: NEVER output or share raw Google Drive web links or URLs in text responses when a document or file is requested. Always download and upload the actual document file attachment (.pdf) directly. NEVER state or pretend that you sent a file or message to a user's private DM unless a document attachment was physically uploaded and delivered in that turn.
 16. STRICT ASSIGNMENT & TASK BOUNDARY (ACADEMIC INTEGRITY SHIELD):
     - You MUST NOT provide extensive technical guidance, step-by-step code/setup solutions, debugging, troubleshooting steps, or advisory to help participants get their assignments or tasks done (e.g. fixing API keys setup for assignments, writing assignment code, or solving task roadblocks).
     - YOUR GUIDANCE IS STRICTLY LIMITED TO:
@@ -1050,6 +1027,7 @@ async function startBot() {
     // 3. Mentions of a facilitator/admin IN AN ACTUAL QUESTION (mentionsAdmin && isQuestionOrInquiry)
     // 4. Fresh unquoted program-related questions (isQuestionOrInquiry when NOT replying to another participant)
     const isQuotedPeerReply = isGroup && !isQuotedBotReply && !!contextInfo?.quotedMessage;
+    const isQuotedAnyReply = !!contextInfo?.quotedMessage;
     const isQuestionMentioningAdmin = mentionsAdmin && isQuestionOrInquiry;
     const isCommandOrAction = cleanPrompt.startsWith('!') || /(translate|traduire|traduis|send.*privately|send.*dm|summarize|remind|poll|event|post)/i.test(cleanLower);
 
@@ -1500,8 +1478,8 @@ Respond with ONLY the JSON object, nothing else.`;
     // ----------------------------------------------------
     // PIPELINE 2.5: DYNAMIC DOCUMENT CATALOG & CONTEXT MATCHING ENGINE
     // ----------------------------------------------------
-    const isAskingForDocument = /(send|upload|get|download|share|give|need|attach|see|show).*(pdf|doc|document|file|handbook|guide|faq pack|pack|source|syllabus|template)/i.test(cleanLower) ||
-                                /(pdf|document|handbook|faq pack|syllabus|template)\b/i.test(cleanLower);
+    const isAskingForDocument = /(send|upload|get|download|share|give|need|attach|see|show|provide|drop|pass|where.*is|access).*(pdf|doc|document|file|handbook|guide|faq|pack|source|syllabus|template|drive)/i.test(cleanLower) ||
+                                /(pdf|document|handbook|faq pack|syllabus|template|drive file|drive folder)\b/i.test(cleanLower);
 
     if (isAskingForDocument) {
       // Gather active conversation context
@@ -1519,7 +1497,7 @@ Respond with ONLY the JSON object, nothing else.`;
       const matchResult = await matchRequestedDocument(cleanLower, conversationContext, supabase);
 
       // CASE 1: MATCHED AN AVAILABLE DOCUMENT -> Upload Native Document Attachment
-      // In groups: route the document to participant's DM to avoid cluttering the group
+      // In groups: route the document to participant's DM if active, else upload directly to group
       if (matchResult.status === 'MATCHED_AVAILABLE' && matchResult.doc) {
         try {
           await sock.sendPresenceUpdate('composing', senderJid);
@@ -1528,31 +1506,47 @@ Respond with ONLY the JSON object, nothing else.`;
 
           const pdfBuffer = await downloadFromGoogleDrive(targetDoc.drive_file_id);
 
+          if (!pdfBuffer || pdfBuffer.length === 0) {
+            throw new Error('Downloaded file buffer from Google Drive is empty.');
+          }
+
           const explicitDMRequested = /(in dm|to my dm|in private|privately|send me in dm|send to my dm|send this to me|send privately|dm me|send to dm|send to me privately)/i.test(cleanLower);
 
           if (isGroup && explicitDMRequested) {
-            // Route document directly to participant's private DM
+            const userHasDM = hasActiveDMSession(senderParticipant);
             const targetDmJid = `${getCleanPhoneNumber(senderParticipant)}@s.whatsapp.net`;
             const { mentionJid, tagStr } = getMentionDetails(senderParticipant);
-            try {
-              await sock.sendMessage(targetDmJid, {
-                document: pdfBuffer,
-                fileName: targetDoc.file_name,
-                mimetype: 'application/pdf',
-                caption: `📄 *${targetDoc.title}*\n\nHere is your official document delivered privately to your DM!`
-              });
+
+            let dmSentSuccess = false;
+            if (userHasDM) {
+              try {
+                await sock.sendMessage(targetDmJid, {
+                  document: pdfBuffer,
+                  fileName: targetDoc.file_name,
+                  mimetype: 'application/pdf',
+                  caption: `📄 *${targetDoc.title}*\n\nHere is your official document delivered privately to your DM!`
+                });
+                dmSentSuccess = true;
+              } catch (dmSendErr) {
+                console.error('[Document DM Direct Delivery Error]:', dmSendErr);
+              }
+            }
+
+            if (dmSentSuccess) {
               await sock.sendPresenceUpdate('paused', senderJid);
               await sock.sendMessage(senderJid, {
                 text: `📄 ${tagStr}, I've sent *${targetDoc.title}* directly to your private DM! Check your chat with me. 😊`,
                 mentions: [mentionJid]
               }, { quoted: msg });
-            } catch (dmSendErr) {
-              console.error('[Document DM Direct Delivery Error]:', dmSendErr);
+            } else {
+              // User has no active DM thread or DM delivery failed -> Upload directly in group chat so delivery NEVER fails!
+              await sock.sendPresenceUpdate('paused', senderJid);
               await sock.sendMessage(senderJid, {
                 document: pdfBuffer,
                 fileName: targetDoc.file_name,
                 mimetype: 'application/pdf',
-                caption: `📄 *${targetDoc.title}*\n\nHere is the official cohort document!`
+                caption: `📄 ${tagStr}, here is *${targetDoc.title}*!\n\n*(Note: To receive files directly in your private DM in the future, please send me a 'Hi' in a private DM first so WhatsApp allows private delivery 😊)*`,
+                mentions: [mentionJid]
               }, { quoted: msg });
             }
           } else {
@@ -1569,6 +1563,11 @@ Respond with ONLY the JSON object, nothing else.`;
           return;
         } catch (docErr) {
           console.error('[Document Catalog Engine Upload Error]:', docErr);
+          await sock.sendPresenceUpdate('paused', senderJid);
+          await sock.sendMessage(senderJid, {
+            text: `⚠️ I encountered an error retrieving the document file attachment from Google Drive. Please try again or contact unipods.regional@undp.org for direct document access.`
+          }, { quoted: msg });
+          return;
         }
       }
 
