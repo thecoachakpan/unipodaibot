@@ -1087,8 +1087,19 @@ async function startBot() {
     // ----------------------------------------------------
     const canCreatePollOrEvent = isGroup ? isFacilitator : true;
 
-    // Detect "to group" / "on the group" / "post on group" intent for admin DM → group routing
-    const wantsGroupDelivery = !isGroup && isFacilitator && /(to\s+(the\s+)?group|on\s+(the\s+)?group|post\s+(on|to|in)\s+(the\s+)?group|send\s+(to|on|in)\s+(the\s+)?group|in\s+the\s+group)/i.test(cleanLower);
+    // Detect "to group" / "on the group" / "post on group" intent
+    const hasGroupRoutingKeyword = !isGroup && /(to\s+(the\s+)?group|on\s+(the\s+)?group|post\s+(on|to|in)\s+(the\s+)?group|send\s+(to|on|in)\s+(the\s+)?group|in\s+the\s+group)/i.test(cleanLower);
+
+    // Non-admin DM-to-group routing attempt -> Decline politely
+    if (!isGroup && !isFacilitator && hasGroupRoutingKeyword) {
+      await sock.sendPresenceUpdate('paused', senderJid);
+      await sock.sendMessage(senderJid, {
+        text: `⚠️ Only program admins can post messages, polls, events, or reminders to the group chat from private DMs. You can create them here for your own personal use!`
+      }, { quoted: msg });
+      return;
+    }
+
+    const wantsGroupDelivery = !isGroup && isFacilitator && hasGroupRoutingKeyword;
 
     // !poll command: !poll "Question?" Option1 | Option2 | Option3 [to group]
     if (cleanPrompt.toLowerCase().startsWith('!poll') && canCreatePollOrEvent) {
@@ -1412,8 +1423,10 @@ Respond with ONLY the JSON object, nothing else.`;
 
           const pdfBuffer = await downloadFromGoogleDrive(targetDoc.drive_file_id);
 
-          if (isGroup) {
-            // Route document to participant's private DM
+          const explicitDMRequested = /(in dm|to my dm|in private|privately|send me in dm|send to my dm|send this to me|send privately|dm me|send to dm|send to me privately)/i.test(cleanLower);
+
+          if (isGroup && explicitDMRequested) {
+            // Route document to participant's private DM ONLY when explicitly requested
             const userHasDMForDoc = hasActiveDMSession(senderParticipant);
             if (userHasDMForDoc) {
               await sock.sendMessage(senderParticipant, {
@@ -1424,7 +1437,7 @@ Respond with ONLY the JSON object, nothing else.`;
               });
               await sock.sendPresenceUpdate('paused', senderJid);
               await sock.sendMessage(senderJid, {
-                text: `📄 @${senderParticipant.split('@')[0]}, I've sent *${targetDoc.title}* to your DM! Check your private chat with me. 😊`,
+                text: `📄 @${senderParticipant.split('@')[0]}, I've sent *${targetDoc.title}* to your DM as requested! Check your private chat with me. 😊`,
                 mentions: [senderParticipant]
               }, { quoted: msg });
             } else {
@@ -1436,12 +1449,12 @@ Respond with ONLY the JSON object, nothing else.`;
               }, { quoted: msg });
             }
           } else {
-            // In DM: send document directly
+            // Share document directly in chat (group or DM) when no explicit DM request was made
             await sock.sendMessage(senderJid, {
               document: pdfBuffer,
               fileName: targetDoc.file_name,
               mimetype: 'application/pdf',
-              caption: `📄 *${targetDoc.title}*\n\nHere is your official document uploaded directly into our chat!`
+              caption: `📄 *${targetDoc.title}*\n\nHere is the official cohort document!`
             }, { quoted: msg });
           }
 
