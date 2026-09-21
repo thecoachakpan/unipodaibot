@@ -797,8 +797,7 @@ async function startBot() {
       }
     }
 
-    // Voice note group guardrail
-    if (isGroup && isAudio) return;
+    // Voice note group guardrail removed — multimodal messages now handled in group context
 
     // ----------------------------------------------------
     // PIPELINE 1.5: FACILITATOR AI AUTO-SUMMARIZER & KNOWLEDGE PIPELINE
@@ -920,8 +919,11 @@ async function startBot() {
     if (isGroup) {
       if (runtimeConfig.chat_scope === 'private_only') return;
 
+      // Multimodal messages (images, audio/voice notes) in groups are always processed
+      // when the bot is tagged, quote-replied, or the participant sends standalone media
+      const isMultimodalMessage = isImage || isAudio;
       const isFreshQuestion = isQuestionOrInquiry && !isQuotedPeerReply;
-      const shouldRespondInGroup = isTagged || isQuestionMentioningAdmin || isQuotedBotReply || isFreshQuestion;
+      const shouldRespondInGroup = isTagged || isQuestionMentioningAdmin || isQuotedBotReply || isFreshQuestion || isMultimodalMessage;
 
       if (!shouldRespondInGroup) return;
     }
@@ -997,6 +999,7 @@ async function startBot() {
       const matchResult = await matchRequestedDocument(cleanLower, conversationContext, supabase);
 
       // CASE 1: MATCHED AN AVAILABLE DOCUMENT -> Upload Native Document Attachment
+      // In groups: route the document to participant's DM to avoid cluttering the group
       if (matchResult.status === 'MATCHED_AVAILABLE' && matchResult.doc) {
         try {
           await sock.sendPresenceUpdate('composing', senderJid);
@@ -1005,12 +1008,38 @@ async function startBot() {
 
           const pdfBuffer = await downloadFromGoogleDrive(targetDoc.drive_file_id);
 
-          await sock.sendMessage(senderJid, {
-            document: pdfBuffer,
-            fileName: targetDoc.file_name,
-            mimetype: 'application/pdf',
-            caption: `📄 *${targetDoc.title}*\n\nHere is your official document uploaded directly into our chat!`
-          }, { quoted: msg });
+          if (isGroup) {
+            // Route document to participant's private DM
+            const userHasDMForDoc = hasActiveDMSession(senderParticipant);
+            if (userHasDMForDoc) {
+              await sock.sendMessage(senderParticipant, {
+                document: pdfBuffer,
+                fileName: targetDoc.file_name,
+                mimetype: 'application/pdf',
+                caption: `📄 *${targetDoc.title}*\n\nHere is your official document sent privately to your DM!`
+              });
+              await sock.sendPresenceUpdate('paused', senderJid);
+              await sock.sendMessage(senderJid, {
+                text: `📄 @${senderParticipant.split('@')[0]}, I've sent *${targetDoc.title}* to your DM! Check your private chat with me. 😊`,
+                mentions: [senderParticipant]
+              }, { quoted: msg });
+            } else {
+              // User has no prior DM session — prompt them to open DM first
+              await sock.sendPresenceUpdate('paused', senderJid);
+              await sock.sendMessage(senderJid, {
+                text: `📄 @${senderParticipant.split('@')[0]}, I have the *${targetDoc.title}* ready! Please send me *"Hi"* in a private DM so I can deliver the document directly to you.`,
+                mentions: [senderParticipant]
+              }, { quoted: msg });
+            }
+          } else {
+            // In DM: send document directly
+            await sock.sendMessage(senderJid, {
+              document: pdfBuffer,
+              fileName: targetDoc.file_name,
+              mimetype: 'application/pdf',
+              caption: `📄 *${targetDoc.title}*\n\nHere is your official document uploaded directly into our chat!`
+            }, { quoted: msg });
+          }
 
           await sock.sendPresenceUpdate('paused', senderJid);
           return;
