@@ -155,13 +155,12 @@ async function checkAndSendReminders() {
           const isExactTime = (offset === 0);
           const formattedOffset = offset >= 60 ? `${Math.round(offset / 60)} hour(s)` : `${offset} minute(s)`;
           
-          const reminderHeader = isExactTime ? '🔔 *REMINDER*' : '🔔 *UPCOMING EVENT REMINDER*';
           const timeDetail = isExactTime ? '⏰ It\'s time!' : `⏰ Starting in *${formattedOffset}*!`;
 
           const tzInfo = getParticipantTimezone(targetJid);
           const localTimeStr = formatLocalTime(new Date(scheduledTime), tzInfo);
 
-          const reminderMsg = `${reminderHeader}\n\n📌 *${item.title}*\n${timeDetail}\n\n*Scheduled Time*: ${localTimeStr}`;
+          const reminderMsg = `🔔 *REMINDER*\n\n📌 *Topic*: ${item.title}\n${timeDetail}\n📅 *Time*: ${localTimeStr}`;
 
           try {
             await socketRef.sendMessage(targetJid, { text: reminderMsg });

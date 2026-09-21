@@ -1425,10 +1425,13 @@ Respond with ONLY the JSON object, nothing else.`;
           const dateStr = parsed.date || new Date(Date.now() + 5 * 60 * 1000).toISOString();
           const offsets = (Array.isArray(parsed.offsets) && parsed.offsets.length > 0) ? parsed.offsets : [0];
           
-          await createScheduledReminder(senderJid, title, dateStr, offsets, isGroup ? senderJid : 'all');
+          // In group chats: target group_jid = 'all' so reminder is delivered privately to participant DM
+          const targetGroupJid = isGroup ? 'all' : 'all';
+          await createScheduledReminder(senderJid, title, dateStr, offsets, targetGroupJid);
           const eventDate = new Date(dateStr);
           
-          const catTimeStr = new Date(eventDate.getTime() + 2 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 16) + ' CAT';
+          const tzInfo = getParticipantTimezone(senderParticipant);
+          const localTimeStr = formatLocalTime(eventDate, tzInfo);
 
           const hasExact = offsets.includes(0);
           const beforeArr = offsets.filter(o => o > 0);
@@ -1440,12 +1443,29 @@ Respond with ONLY the JSON object, nothing else.`;
             offsetDisplay = 'At exact scheduled time';
           }
 
-          const targetLocationNotice = isGroup ? 'I will post the reminder to the group!' : 'I will send you a private WhatsApp DM when it\'s time!';
+          const confirmMessage = `✅ *${parsed.type === 'event' ? 'Event' : 'Reminder'} Scheduled!*\n\n📌 *Topic*: ${title}\n📅 *Time*: ${localTimeStr}\n🔔 *Alert Timing*: ${offsetDisplay}\n\nI will send you a private WhatsApp DM when it's time!`;
 
-          await sock.sendPresenceUpdate('paused', senderJid);
-          await sock.sendMessage(senderJid, {
-            text: `✅ *${parsed.type === 'event' ? 'Event' : 'Reminder'} Scheduled!*\n\n📌 *Topic*: ${title}\n📅 *Time*: ${catTimeStr}\n🔔 *Alert Timing*: ${offsetDisplay}\n\n${targetLocationNotice}`
-          }, { quoted: msg });
+          if (isGroup) {
+            // 1. Send confirmation privately to participant's DM
+            try {
+              await sock.sendMessage(senderParticipant, { text: confirmMessage });
+            } catch (dmErr) {
+              console.error('[Group Reminder DM Confirmation Error]:', dmErr);
+            }
+
+            // 2. React to participant's message in the group with ⏰ to keep group clean!
+            try {
+              await sock.sendPresenceUpdate('paused', senderJid);
+              await sock.sendMessage(senderJid, { react: { text: '⏰', key: msg.key } });
+            } catch (reactErr) {
+              console.error('[Group Reaction Error]:', reactErr);
+            }
+          } else {
+            // In DM: reply with confirmation message directly
+            await sock.sendPresenceUpdate('paused', senderJid);
+            await sock.sendMessage(senderJid, { text: confirmMessage }, { quoted: msg });
+          }
+
           return;
         }
 
