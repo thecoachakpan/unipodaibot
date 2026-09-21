@@ -1620,12 +1620,15 @@ Respond with ONLY the JSON object, nothing else.`;
       // Contextual follow-up check: Retrieve participant's recent message context
       const promptWithFollowupContext = getParticipantFollowupContext(senderJid, senderParticipant, cleanPrompt);
       
+      const cleanSenderNum = getCleanPhoneNumber(senderParticipant);
+      const adminStatusStr = isFacilitator ? 'YES (Verified Cohort Facilitator / Program Admin)' : 'NO (Cohort Participant)';
+
       let chatEnvHeader = '';
       if (isGroup) {
         const groupSubject = await getGroupSubject(sock, senderJid);
-        chatEnvHeader = `[Environment: WhatsApp Group Chat | Group Name: "${groupSubject}" | Sender Profile Name: ${validPushName || 'None (Use @tag or direct text)'} | Sender ID: ${senderParticipant.split('@')[0]}]`;
+        chatEnvHeader = `[Environment: WhatsApp Group Chat | Group Name: "${groupSubject}" | Sender Profile Name: ${validPushName || 'None'} | Sender Phone Number: +${cleanSenderNum} | Is Verified Admin/Facilitator: ${adminStatusStr}]`;
       } else {
-        chatEnvHeader = `[Environment: Private 1-on-1 DM | Sender Profile Name: ${validPushName || 'None (Use @tag or direct text)'} | Sender ID: ${senderParticipant.split('@')[0]}]`;
+        chatEnvHeader = `[Environment: Private 1-on-1 DM | Sender Profile Name: ${validPushName || 'None'} | Sender Phone Number: +${cleanSenderNum} | Is Verified Admin/Facilitator: ${adminStatusStr}]`;
       }
       const senderIdentityHeader = chatEnvHeader;
       
