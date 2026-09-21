@@ -61,9 +61,10 @@ Running automated bots via Baileys connects as an emulated WhatsApp Web multi-de
 1. **Strict Inbound-Only Engagement (No Cold DMs):**
    - **Never** perform automated cold-messaging or unsolicited DMs to users who have not messaged the bot first.
    - If a participant asks a private question in a group chat, but has never initiated a private DM with the bot before, the bot politely responds in the group: *"Hi @User, send me a quick 'Hi' in a private DM and I'll drop your answer right away!"* to comply with Meta anti-ban rules.
-2. **Selective Triggering & Facilitator/Admin Mentions in Group Chats:**
-   - The bot must **never** process or reply to every message in a group.
-   - Process group messages only when explicitly summoned with a trigger tag (`@bot`, `!ask`), when facilitators/admins are mentioned (`Diane`, `Gift`, `Jeovaire`, `Munira`, `Charles`, `Bolton`), **OR when a group member directly replies to a previous message sent by PodPal BOT**.
+2. **Selective Triggering, Declarative Statement Guard & Privacy Guard in Group Chats:**
+   - The bot must **never** process or reply to every message in a group, and must **never** interfere in peer-to-peer conversations, casual comments, or declarative statements between participants.
+   - Declarative statements (e.g. *"I submitted module 2"*, *"The call was good"*, *"Me too"*) are filtered out even if they contain program keywords.
+   - Process group messages only when explicitly tagged (`@bot`, `!ask`), when facilitators/admins are mentioned (`Victor`, `Diane`, `Gift`, `Jeovaire`, `Munira`, `Charles`, `Bolton`), when a user directly replies to a message sent by PodPal BOT, or when a user asks a fresh unquoted program question.
 3. **Anti-Spam Rate Limiter & Cooldown:**
    - Per-chat queue ensures max 1 reply per 2.5 seconds per chat.
    - Per-user cooldown ignores rapid duplicate tags within 15 seconds from the same user.
@@ -71,6 +72,14 @@ Running automated bots via Baileys connects as an emulated WhatsApp Web multi-de
    - Broadcast `sock.sendPresenceUpdate('composing', jid)` before replying with 2,000ms – 3,500ms artificial delay.
 5. **Program-Relatedness Focus Shield:**
    - Gently declines off-topic questions (e.g., cat poems, general homework) to protect bot trust and save LLM compute.
+6. **Academic Integrity & Strict Assignment Boundary Shield:**
+   - The bot MUST NOT do or complete assignments for participants or solve technical task roadblocks for them (e.g., step-by-step API key setup exercises, debugging assignment code).
+   - The bot guides participants strictly on *what* is expected of them (submission guidelines, formats, deadlines) and *how/where* to find their expected tasks on the course portals.
+   - When asked for assignment troubleshooting or solution steps, the bot explicitly declines, clarifies its scope, and directs the participant to relevant facilitators/admins or official support (`unipods.regional@undp.org`).
+7. **Direct Task Execution & Dissatisfaction Escalation Protocol:**
+   - The bot MUST NOT append repetitive closing boilerplate paragraphs explaining its purpose. It outputs direct answers or task results (translations, reference messages, admin mentions).
+   - When participants express satisfaction, the bot reacts with emojis. When participants express vague dissatisfaction ("that doesn't help", "still wrong"), the bot apologizes, asks targeted clarifying follow-up questions, and guides them step-by-step.
+   - If a participant continues to express dissatisfaction after accurate, complete information has been provided, the bot politely refers and tags relevant program admins (`@Gift`, `@Diane`, `@Charles`, `@Jeovaire`, `@Munira`) or provides support email (`unipods.regional@undp.org`).
 
 ---
 
@@ -195,7 +204,7 @@ Comment puis-je vous aider aujourd'hui ? 😊
 ## 6. Advanced Features & Interaction Specifications
 
 ### 6.1 Admin Private DM Scheduling Engine (`!remind`)
-- Verified Admin WhatsApp JIDs (Diane, Gift, Jeovaire, Munira, Charles Bolton) chatting in private DMs enter **Admin Command Mode**.
+- Verified Admin WhatsApp JIDs (Victor Akpan, Diane, Gift, Jeovaire, Munira, Charles Bolton) chatting in private DMs enter **Admin Command Mode**.
 - Commands: `!remind 30m,5m "Wadhwani Q&A starting soon! Join: https://..."` or `!announce "New submission rules published"`.
 - 1-minute ticker checks `scheduled_reminders` and broadcasts to group chats at 30m/5m before meetings or 12h/1h before deadlines.
 
@@ -243,7 +252,7 @@ Comment puis-je vous aider aujourd'hui ? 😊
 ---
 
 ## 9. Grounded Program FAQ & Reference Data
-- **Key Contacts**: `unipods.regional@undp.org`, `uaisupport@mit.edu`, Charles Bolton (`+27 79 356 5520`), Diane, Gift Ntuli, Jeovaire Umukundwa, Munira Umugwaneza.
+- **Key Contacts**: `unipods.regional@undp.org`, `uaisupport@mit.edu`, Victor Akpan (`+234 909 369 6284`), Charles Bolton (`+27 79 356 5520`), Gift Ntuli (`+263 77 409 4822`), Diane (`+250 78 318 8655`), Jeovaire Umukundwa (`+250 78 935 5992`), Munira Umugwaneza (`+250 78 638 7244`).
 - **Key Deadlines**:
   - UN GA Demo Video Submission: Friday, 18 Sept 2026 @ 2:00 PM CAT.
   - UniPods Chatbot Hackathon: 18 Sept – 24 Sept 2026 ($5,000 prize).

@@ -21,8 +21,7 @@ const initialEntries = [
     content: `### Grounded Program Guidelines & Support Contacts
 - **Primary Program Email**: unipods.regional@undp.org (General inquiries, team declarations, support letters, official submissions).
 - **MIT Universal AI Technical Support**: uaisupport@mit.edu (Enrollment issues, platform bugs).
-- **Wadhwani Support Lead**: Charles Bolton (+27 79 356 5520).
-- **Programme Leads & Facilitators**: Diane (Programme Team Rwanda), Gift Ntuli, Jeovaire Umukundwa, Munira Umugwaneza.
+- **Programme Leads & Facilitators**: Victor Akpan (+234 909 369 6284), Charles Bolton (+27 79 356 5520), Gift Ntuli (+263 77 409 4822), Diane (+250 78 318 8655), Jeovaire Umukundwa (+250 78 935 5992), Munira Umugwaneza (+250 78 638 7244).
 - **Overall Duration**: 14 weeks.
 - **Language of Instruction**: 100% in English for the 2026 cohort.
 - **Venture Continuity**: Build the venture applied with; co-founder venture merging across cohort participants is permitted.`

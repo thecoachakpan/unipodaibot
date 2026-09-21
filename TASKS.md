@@ -43,7 +43,8 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
   - Implement **First-Time DM Interactive Welcome Message & Engaging Persona** in user's language.
   - Implement **Multi-Participant Summary Dispatch Queue**: Queue multiple users replying *"send to me too"*, process with 2.5s rate-limit jitter, and send natural varied confirmation receipts (*"I have sent it to your DM!"*, *"Check your DM shortly"*, *"You'll get it right away!"*).
   - Implement **Missed Meeting Executive Summary & Action Points Dispatcher**: Proactively offer session summaries & key action items when founders inquire about past calls.
-  - Implement **Smart Group-to-DM Response Router**: Route participant-specific questions to DMs cleanly while respecting Meta anti-ban rules.
+  - Implement **Smart Group-to-DM Response Router & Group Chat Privacy Guard**: Route participant-specific questions to DMs cleanly while strictly ignoring peer-to-peer conversations between group members.
+  - Implement **Automatic Auth Session Purge & Web Reset Server (`/qr` & `/reset-qr`)**: Automatically purge stale Supabase auth entries on logout, auto-restart socket, and allow manual reset via `/reset-qr`.
   - Implement **Message Revocation Engine**: Allow admins to delete bot messages with `!delete` / `!revoke`.
   - Commands: `!links`, `!deadlines`, `!schedule`, `!reset`, `!delete`, `!start`.
   - Expired event detection & past deadline guard.

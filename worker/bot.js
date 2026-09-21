@@ -399,6 +399,25 @@ async function callAiWithFallbackChain(contentsPayload, systemInstruction) {
   throw new Error('All AI models in the fallback chain failed.');
 }
 
+// Group Metadata Cache (groupJid -> { subject, fetchedAt })
+const groupMetadataCache = new Map();
+
+async function getGroupSubject(sock, groupJid) {
+  if (!groupJid || !groupJid.endsWith('@g.us')) return 'WhatsApp Group';
+  const cached = groupMetadataCache.get(groupJid);
+  if (cached && (Date.now() - cached.fetchedAt < 10 * 60 * 1000)) {
+    return cached.subject;
+  }
+  try {
+    const meta = await sock.groupMetadata(groupJid);
+    const subject = meta?.subject || 'WhatsApp Group';
+    groupMetadataCache.set(groupJid, { subject, fetchedAt: Date.now() });
+    return subject;
+  } catch (err) {
+    return cached?.subject || 'WhatsApp Group';
+  }
+}
+
 // Sliding window message history buffer per chat (group or DM) for contextual follow-up checks & missed tag scanning
 const recentChatMessages = new Map();
 
@@ -520,6 +539,18 @@ STRICT CONSTRAINTS & BEHAVIOR:
     - IF A PARTICIPANT ASKS YOU TO HELP FIX, DEBUG, OR COMPLETE AN ASSIGNMENT OR TASK ROADBLOCK:
       - Inform them in their language that you can only provide responses related to general program requirements and portal navigation, but CANNOT troubleshoot or solve specific assignment tasks or code for participants.
       - Advise them to seek direct support from the relevant program facilitators/admins (e.g., during Open Hours or coaching sessions) or send an email to unipods.regional@undp.org (or uaisupport@mit.edu for MIT track) for technical assignment assistance.
+17. ROLE-SPECIFIC ADMIN TAGGING & PRIVATE DM VS GROUP FORMATTING:
+    - SPECIFIC ADMIN ROLES & ASSIGNMENT MATRIX:
+      1. Diane (+250 78 318 8655): Primary WhatsApp Group Coordinator. She is the ONLY admin to refer/tag when participants are directed to contact admin for general cohort issues or send an email to unipods.regional@undp.org.
+      2. Gift Ntuli (+263 77 409 4822): Primary Admin for Office Hours, Online Meetings on MS Teams, and Wadhwani session moderator (where Charles is facilitator). Refer/tag Gift for online calls, MS Teams links, Open Hours, or meeting moderation queries.
+      3. Jeovaire Umukundwa (+250 78 935 5992): Community Admin handling general WhatsApp group announcements on the announcement tab. Refer/tag Jeovaire for questions about group announcements, community rules, or announcement tab posts.
+      4. Charles Bolton (+27 79 356 5520): Lead Facilitator for Wadhwani Ignite. ONLY tag Charles when responding inside the Wadhwani-specific track group. Do NOT tag Charles in the General Cohort group (Gift handles online call queries there).
+      5. Victor Akpan (+234 909 369 6284): Technical Lead & System Admin.
+      6. Munira Umugwaneza (+250 78 638 7244): Programme Admin.
+
+    - PRIVATE DM vs GROUP FORMATTING RULE:
+      - IN WHATSAPP GROUP CHATS: Use native WhatsApp @tags (e.g. @Diane, @Gift, @Jeovaire, @Victor, @Munira, or @Charles in Wadhwani group).
+      - IN PRIVATE DMs: NEVER output @tags (e.g. do NOT write "@Diane" or "@Gift"). Instead, write out the admin's full name and explicit phone number with country code (e.g., "Diane (+250 78 318 8655)", "Gift Ntuli (+263 77 409 4822)", "Jeovaire Umukundwa (+250 78 935 5992)") so the participant can tap to call or save their contact!
 
 CRITICAL DEADLINE COMPARISON INSTRUCTIONS:
 - ONLY discuss or evaluate deadlines when the user explicitly asks about deadlines, schedules, submission dates, or upcoming milestones.
@@ -831,15 +862,19 @@ async function startBot() {
     const wordCount = cleanPrompt.split(/\s+/).filter(Boolean).length;
 
     // Program-Related Keyword Matcher
-    const programKeywordMatch = /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project|unipod|meti|program|programme|course|module|enrol|enrollment|chatbot|team|class|open hour|coaching|milestone|problem statement|bootcamp|addis|funding|timbuktoo|charles|workshop|onboarding|platform|sign up|sign in|blank page|error|email|notification|invite|enrolled|certificate|recap|today|tomorrow|next week|this week)/i.test(cleanPrompt);
+    const programKeywordMatch = /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project|unipod|meti|program|programme|course|module|enrol|enrollment|chatbot|team|class|open hour|coaching|milestone|problem statement|bootcamp|addis|funding|timbuktoo|charles|workshop|onboarding|platform|sign up|sign in|blank page|error|email|notification|invite|enrolled|certificate|recap|today|tomorrow|next week|this week|admin|admins|facilitator|facilitators|lead|leads|coordinator|dashboard|page|screen|issue|victor|diane|gift|jeovaire|munira|charles|umukundwa|ntuli|bolton)/i.test(cleanPrompt);
 
-    // Question-detection heuristic: must end with ? OR start/contain explicit question or inquiry phrases
+    // Strip leading admin name prefix (e.g. "gift i need help with my mit dashboard" -> "i need help with my mit dashboard")
+    const promptWithoutAdminPrefix = cleanPrompt.replace(/^(gift|diane|victor|jeovaire|munira|charles|ntuli|umukundwa|bolton|hey|hi|hello|dear|pls|please)\b\s*/gi, '').trim();
+
+    // Question-detection heuristic: must end with ? OR start/contain explicit question or inquiry/help phrases
     const looksLikeQuestion = cleanPrompt.endsWith('?') ||
-                              /^(what|when|where|how|who|why|can|is|are|do|does|did|will|should|could|please|any|has|have|was|were|which|explain|tell|anyone|is there|where is|how do|can someone)/i.test(cleanPrompt.trim()) ||
-                              /(when is|what is|where is|how to|how do|need help|help with|anyone know|link for|schedule for|deadline for|can i get)/i.test(cleanPrompt);
+                              promptWithoutAdminPrefix.endsWith('?') ||
+                              /^(what|when|where|how|who|why|can|is|are|do|does|did|will|should|could|please|any|has|have|was|were|which|explain|tell|anyone|is there|where is|how do|can someone|who is|who are)/i.test(promptWithoutAdminPrefix) ||
+                              /(when is|what is|where is|how to|how do|need help|help with|issue with|problem with|error with|can't access|cannot access|anyone know|link for|schedule for|deadline for|can i get|who is|who are)/i.test(cleanPrompt);
 
-    // Declarative statement guard: Filter out statements like "I submitted module 2", "that worked", "me too", "I finished"
-    const isDeclarativeStatement = !cleanPrompt.endsWith('?') && /^(i|we|my|the|that|this|it|yes|no|yeah|yep|sure|okay|ok|agree|done|completed|finished|submitted|got|seen|already|thanks|thank|great|awesome)\b/i.test(cleanPrompt.trim()) && !/^(please|can|could|how|what|when|where|why|help|explain|tell)/i.test(cleanPrompt.trim());
+    // Declarative statement guard: Filter out casual statements like "I submitted module 2", "that worked", "me too", "I finished"
+    const isDeclarativeStatement = !cleanPrompt.endsWith('?') && !promptWithoutAdminPrefix.endsWith('?') && /^(i|we|my|the|that|this|it|yes|no|yeah|yep|sure|okay|ok|agree|done|completed|finished|submitted|got|seen|already|thanks|thank|great|awesome)\b/i.test(promptWithoutAdminPrefix) && !/(need help|help with|issue with|problem with|how to|how do|can i|where is|when is)/i.test(cleanPrompt);
 
     // A message is a valid program inquiry ONLY if it matches program keywords AND is an actual question AND is NOT a declarative statement
     const isQuestionOrInquiry = programKeywordMatch && looksLikeQuestion && !isDeclarativeStatement;
@@ -1022,7 +1057,15 @@ async function startBot() {
       
       // Contextual follow-up check: Retrieve participant's recent message context
       const promptWithFollowupContext = getParticipantFollowupContext(senderJid, senderParticipant, cleanPrompt);
-      const senderIdentityHeader = `[Sender Profile Name: ${validPushName || 'None (Use @tag or direct text)'} | Sender ID: ${senderParticipant.split('@')[0]}]`;
+      
+      let chatEnvHeader = '';
+      if (isGroup) {
+        const groupSubject = await getGroupSubject(sock, senderJid);
+        chatEnvHeader = `[Environment: WhatsApp Group Chat | Group Name: "${groupSubject}" | Sender Profile Name: ${validPushName || 'None (Use @tag or direct text)'} | Sender ID: ${senderParticipant.split('@')[0]}]`;
+      } else {
+        chatEnvHeader = `[Environment: Private 1-on-1 DM | Sender Profile Name: ${validPushName || 'None (Use @tag or direct text)'} | Sender ID: ${senderParticipant.split('@')[0]}]`;
+      }
+      const senderIdentityHeader = chatEnvHeader;
       
       let contentsPayload;
 
@@ -1087,7 +1130,13 @@ async function startBot() {
       // ----------------------------------------------------
       const isParticipantSpecific = cleanPrompt.toLowerCase().includes('my account') ||
                                      cleanPrompt.toLowerCase().includes('my credential') ||
-                                     cleanPrompt.toLowerCase().includes('my score');
+                                     cleanPrompt.toLowerCase().includes('my score') ||
+                                     cleanPrompt.toLowerCase().includes('in dm') ||
+                                     cleanPrompt.toLowerCase().includes('to my dm') ||
+                                     cleanPrompt.toLowerCase().includes('in private') ||
+                                     cleanPrompt.toLowerCase().includes('privately') ||
+                                     cleanPrompt.toLowerCase().includes('send me in dm') ||
+                                     cleanPrompt.toLowerCase().includes('send to my dm');
 
       if (isGroup && isParticipantSpecific) {
         const userHasDM = hasActiveDMSession(senderParticipant);
@@ -1119,21 +1168,23 @@ async function startBot() {
         updateSessionHistory(senderJid, cleanPrompt, replyText);
       }
 
-      // Automatically collect native WhatsApp mentions (JIDs) for tagged admins and sender
+      // Automatically collect native WhatsApp mentions (JIDs) for tagged admins and sender (Groups only)
       const mentionsList = [];
-      if (senderParticipant && isGroup) mentionsList.push(senderParticipant);
+      if (isGroup) {
+        if (senderParticipant) mentionsList.push(senderParticipant);
 
-      for (const admin of FACILITATOR_MAP) {
-        const adminNumber = admin.jid.split('@')[0];
-        if (replyText.toLowerCase().includes(admin.name) || replyText.includes(adminNumber) || cleanLower.includes(admin.name)) {
-          if (!mentionsList.includes(admin.jid)) {
-            mentionsList.push(admin.jid);
+        for (const admin of FACILITATOR_MAP) {
+          const adminNumber = admin.jid.split('@')[0];
+          if (replyText.toLowerCase().includes(admin.name) || replyText.includes(adminNumber) || cleanLower.includes(admin.name)) {
+            if (!mentionsList.includes(admin.jid)) {
+              mentionsList.push(admin.jid);
+            }
           }
         }
       }
 
       await sock.sendPresenceUpdate('paused', senderJid);
-      await sock.sendMessage(senderJid, { text: replyText, mentions: mentionsList }, { quoted: msg });
+      await sock.sendMessage(senderJid, { text: replyText, mentions: isGroup ? mentionsList : [] }, { quoted: msg });
 
     } catch (err) {
       console.error('[Inference Error - Silent Retry Exceeded]:', err);
