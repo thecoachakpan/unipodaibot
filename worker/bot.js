@@ -1092,10 +1092,29 @@ async function startBot() {
 
     const rawParticipant = msg.key.participant || senderJid;
 
-    // Resolve @lid JID to phone-based JID using group metadata cache
-    const resolvedParticipant = isGroup
-      ? await resolveParticipantPhone(sock, rawParticipant, senderJid)
-      : rawParticipant;
+    // Resolve @lid JID to phone-based JID.
+    // In groups: uses group metadata participants list.
+    // In DMs: uses lidToPhoneCache (populated from prior group interactions).
+    let resolvedParticipant;
+    if (isGroup) {
+      resolvedParticipant = await resolveParticipantPhone(sock, rawParticipant, senderJid);
+    } else if (senderJid.includes('@lid')) {
+      // DM from @lid JID — try cache lookup (no group metadata available in DMs)
+      let cachedPhone = lidToPhoneCache.get(senderJid) || lidToPhoneCache.get(senderJid.split('@')[0]);
+      if (!cachedPhone) {
+        // Cache miss — refresh LID cache from all groups the bot participates in
+        await getKnownGroupJids(sock);
+        cachedPhone = lidToPhoneCache.get(senderJid) || lidToPhoneCache.get(senderJid.split('@')[0]);
+      }
+      resolvedParticipant = cachedPhone || rawParticipant;
+      if (cachedPhone) {
+        console.log(`[LID DM Resolver] Resolved DM @lid ${senderJid} → ${cachedPhone}`);
+      } else {
+        console.warn(`[LID DM Resolver] Could not resolve DM @lid ${senderJid} — not found in any shared group`);
+      }
+    } else {
+      resolvedParticipant = rawParticipant;
+    }
 
     // Unbox WhatsApp message edits (protocolMessage type 14 = Message Edit)
     const editedMsg = msg.message?.protocolMessage?.editedMessage;
