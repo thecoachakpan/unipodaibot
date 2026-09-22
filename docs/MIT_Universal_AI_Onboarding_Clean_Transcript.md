@@ -3,7 +3,8 @@
 - **Programme:** UNDP timbuktoo UniPods METI AI Innovation Programme (Cohort 1)
 - **Session Track:** MIT Universal AI Coursework Onboarding & Welcome
 - **Session Date:** Wednesday, 16 September 2026
-- **Lead Speakers:** Gift Ntuli (UNDP UniPod Programme Lead), Maria Segala (Customer Success Manager, Universal Learning, MIT Open Learning), Jeovaire Umukundwa (UNDP Support Team), Victor Akpan (PodPal BOT Lead), Cohort Innovators.
+- **Lead Speakers & Facilitators:** Maria Segala (Customer Success Manager, Universal Learning, MIT Open Learning), Gift Ntuli (UNDP UniPod Programme Lead), Jeovaire Umukundwa (UNDP Support Team).
+- **Contributors:** Victor Akpan (Innovator & PodPal BOT Creator — shared dashboard technical navigation tip), Cohort Innovators.
 - **Document Status:** Cleaned, structured, filler-free transcript reference.
 
 ---

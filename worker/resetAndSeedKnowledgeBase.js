@@ -35,7 +35,8 @@ const cleanMasterEntries = [
     content: `### Grounded Program Guidelines & Support Contacts
 - **Primary Program Email**: unipods.regional@undp.org (General inquiries, team declarations, support letters, official submissions).
 - **MIT Universal AI Technical Support**: uaisupport@mit.edu (Enrollment issues, platform bugs).
-- **Programme Leads & Facilitators**: Victor Akpan (+234 909 369 6284), Charles Bolton (+27 79 356 5520), Gift Ntuli (+263 77 409 4822), Diane (+250 78 318 8655), Jeovaire Umukundwa (+250 78 935 5992), Munira Umugwaneza (+250 78 638 7244).
+- **Programme Facilitators & Leads**: Charles Bolton (+27 79 356 5520), Gift Ntuli (+263 77 409 4822), Diane (+250 78 318 8655), Jeovaire Umukundwa (+250 78 935 5992), Munira Umugwaneza (+250 78 638 7244).
+- **Bot Technical Creator & Owner**: Victor Akpan (+234 909 369 6284 — Creator/Lead Developer of PodPal BOT; has full bot admin permissions for system commands like !save, but is NOT a program admin or meeting facilitator).
 - **Overall Duration**: 14 weeks.
 - **Language of Instruction**: 100% in English for the 2026 cohort.
 - **Venture Continuity**: Build the venture applied with; co-founder venture merging across cohort participants is permitted.`
@@ -47,7 +48,7 @@ const cleanMasterEntries = [
 Note: Always reference timezones: CAT (UTC+2), WAT (UTC+1), EAT (UTC+3), GMT.
 - **Welcome & Onboarding Call**: Tuesday, 8 Sept 2026 (Completed).
 - **Wadhwani Ignite Onboarding**: Thursday, 10 Sept 2026 (Completed).
-- **MIT Universal AI Onboarding**: Wednesday, 16 Sept 2026 (Facilitated by Maria Segala from MIT Open Learning, Gift Ntuli, Jeovaire Umukundwa & Victor Akpan).
+- **MIT Universal AI Onboarding**: Wednesday, 16 Sept 2026 (Facilitated by Maria Segala from MIT Open Learning, Gift Ntuli & Jeovaire Umukundwa; Victor Akpan contributed as an innovator with a dashboard fix tip).
 - **UN General Assembly Video Submission**: Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT).
 - **Weekly Open Hour ("Ask Us Anything")**: Every Friday @ 3:00 PM CAT (2:00 PM WAT / 1:00 PM GMT).
 - **Regular Weekly Open Hours**: Mondays (with Gift) & Wednesdays (with Diane) @ 3:00 PM CAT.
@@ -74,7 +75,8 @@ Note: Always reference timezones: CAT (UTC+2), WAT (UTC+1), EAT (UTC+3), GMT.
     source_type: 'onboarding_session',
     link_url: 'https://mit-online.mit.edu/',
     content: `### MIT Universal AI Onboarding — Facilitators & Speaker Roles Clarification
-- **Live Onboarding Meeting Facilitator**: **Maria Segala** (Customer Success Manager, Universal Learning, MIT Open Learning) was the **sole MIT representative and lead speaker** who facilitated the live MIT onboarding session alongside Gift Ntuli, Jeovaire Umukundwa, and Victor Akpan.
+- **Live Onboarding Meeting Facilitator**: **Maria Segala** (Customer Success Manager, Universal Learning, MIT Open Learning) was the **sole MIT representative and lead speaker** who facilitated the live MIT onboarding session alongside Gift Ntuli and Jeovaire Umukundwa.
+- **Victor Akpan Contribution**: Victor Akpan participated as a cohort innovator who shared a technical navigation tip to help participants locate the Universal AI dashboard on MIT Learn. He was **NOT** a meeting facilitator or program admin.
 - **Video Course Faculty**: **Prof. Georgios Samou** is an MIT faculty member featured in the pre-recorded video lectures on the platform (teaching Python & Machine Learning concepts). He was **NOT** on the live onboarding call.
 - **Track Structure**: 16 mandatory Foundational AI modules covering Python, machine learning, deep learning, GenAI, and prescriptive AI + optional vertical modules.
 - **Completion Deadline**: Sunday, 18 October 2026 (completion unlocks Ethiopian AI Institute phase, grant funding, and Addis Ababa bootcamp).
