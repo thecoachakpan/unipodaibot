@@ -8,6 +8,7 @@ export const userSessions = new Map();
 export const summaryQueue = [];
 
 const MAX_TURNS = 3; // Retains last 3 Q&A pairs (6 messages)
+const MAX_TURN_CHARS = 500; // Truncate individual turn text to prevent token inflation
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30-minute inactivity limit
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // Sweep every 10 minutes
 const MAX_TOTAL_SESSIONS = 1000; // Hard cap
@@ -48,9 +49,17 @@ export function updateSessionHistory(senderJid, userText, modelText) {
     userSessions.set(senderJid, session);
   }
 
+  // Truncate individual turn text to prevent token inflation from verbose responses
+  const trimmedUser = userText && userText.length > MAX_TURN_CHARS
+    ? userText.substring(0, MAX_TURN_CHARS) + '…'
+    : userText;
+  const trimmedModel = modelText && modelText.length > MAX_TURN_CHARS
+    ? modelText.substring(0, MAX_TURN_CHARS) + '…'
+    : modelText;
+
   session.messages.push(
-    { role: 'user', parts: [{ text: userText }] },
-    { role: 'model', parts: [{ text: modelText }] }
+    { role: 'user', parts: [{ text: trimmedUser }] },
+    { role: 'model', parts: [{ text: trimmedModel }] }
   );
 
   if (session.messages.length > MAX_TURNS * 2) {
