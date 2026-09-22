@@ -7,6 +7,16 @@
 export const userSessions = new Map();
 export const summaryQueue = [];
 
+/**
+ * Normalizes a JID by stripping WhatsApp device suffixes (e.g. ":5").
+ * "2349093696284:5@s.whatsapp.net" → "2349093696284@s.whatsapp.net"
+ * This ensures DM-side and group-side lookups resolve to the same session key.
+ */
+function normalizeSessionJid(jid) {
+  if (!jid || typeof jid !== 'string') return '';
+  return jid.replace(/:\d+@/, '@');
+}
+
 const MAX_TURNS = 3; // Retains last 3 Q&A pairs (6 messages)
 const MAX_TURN_CHARS = 500; // Truncate individual turn text to prevent token inflation
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30-minute inactivity limit
@@ -18,7 +28,8 @@ const MAX_TOTAL_SESSIONS = 1000; // Hard cap
  * Used for Meta anti-ban safe Smart Group-to-DM Routing.
  */
 export function hasActiveDMSession(senderJid) {
-  const session = userSessions.get(senderJid);
+  const key = normalizeSessionJid(senderJid);
+  const session = userSessions.get(key);
   if (!session) return false;
   return Date.now() - session.lastActive <= SESSION_TTL_MS;
 }
@@ -27,11 +38,12 @@ export function hasActiveDMSession(senderJid) {
  * Gets sliding window session turns for a user.
  */
 export function getSessionHistory(senderJid) {
+  const key = normalizeSessionJid(senderJid);
   const now = Date.now();
-  const session = userSessions.get(senderJid);
+  const session = userSessions.get(key);
 
   if (!session || (now - session.lastActive > SESSION_TTL_MS)) {
-    userSessions.set(senderJid, { lastActive: now, messages: [] });
+    userSessions.set(key, { lastActive: now, messages: [] });
     return [];
   }
 
@@ -43,10 +55,11 @@ export function getSessionHistory(senderJid) {
  * Updates session turn history.
  */
 export function updateSessionHistory(senderJid, userText, modelText) {
-  let session = userSessions.get(senderJid);
+  const key = normalizeSessionJid(senderJid);
+  let session = userSessions.get(key);
   if (!session) {
     session = { lastActive: Date.now(), messages: [] };
-    userSessions.set(senderJid, session);
+    userSessions.set(key, session);
   }
 
   // Truncate individual turn text to prevent token inflation from verbose responses
@@ -73,7 +86,7 @@ export function updateSessionHistory(senderJid, userText, modelText) {
  * Clears session turns for a user.
  */
 export function clearSessionHistory(senderJid) {
-  userSessions.delete(senderJid);
+  userSessions.delete(normalizeSessionJid(senderJid));
 }
 
 /**
