@@ -2,6 +2,10 @@
  * PodPal BOT - Session Memory, DM Session Tracker & Garbage Collector
  * Maintains sliding-window conversation turns (3 Q&A pairs / 6 messages) for DMs
  * and tracks DM session existence for Smart Group-to-DM Response Routing.
+ *
+ * DM session existence is persisted to Supabase (dm_sessions table) to survive
+ * Render free-tier spin-downs and process restarts. Conversation history remains
+ * in-memory only (ephemeral by design).
  */
 
 export const userSessions = new Map();
@@ -19,19 +23,79 @@ function normalizeSessionJid(jid) {
 
 const MAX_TURNS = 3; // Retains last 3 Q&A pairs (6 messages)
 const MAX_TURN_CHARS = 500; // Truncate individual turn text to prevent token inflation
-const SESSION_TTL_MS = 30 * 60 * 1000; // 30-minute inactivity limit
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30-minute inactivity limit (in-memory conversation history)
+const DM_SESSION_TTL_MS = 48 * 60 * 60 * 1000; // 48-hour DM session existence TTL (persisted in Supabase)
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // Sweep every 10 minutes
 const MAX_TOTAL_SESSIONS = 1000; // Hard cap
 
+// Supabase client reference — set via initSessionSupabase()
+let supabaseClient = null;
+
 /**
- * Checks if a user has an active DM conversation history with the bot.
- * Used for Meta anti-ban safe Smart Group-to-DM Routing.
+ * Initialize Supabase client for DM session persistence.
+ * Must be called once at bot startup with the Supabase client instance.
  */
-export function hasActiveDMSession(senderJid) {
+export function initSessionSupabase(supabase) {
+  supabaseClient = supabase;
+}
+
+/**
+ * Records that a user has an active DM session with the bot.
+ * Persists to Supabase so it survives process restarts and Render spin-downs.
+ */
+export async function recordDMSession(senderJid) {
   const key = normalizeSessionJid(senderJid);
+  if (!key || key.includes('@g.us') || key.includes('@lid')) return;
+
+  if (supabaseClient) {
+    try {
+      await supabaseClient.from('dm_sessions').upsert({
+        jid: key,
+        last_dm_at: new Date().toISOString()
+      }, { onConflict: 'jid' });
+    } catch (err) {
+      console.error('[DM Session Persist Error]:', err?.message || err);
+    }
+  }
+}
+
+/**
+ * Checks if a user has an active DM conversation with the bot.
+ * First checks in-memory Map, then falls back to Supabase for persistence across restarts.
+ */
+export async function hasActiveDMSession(senderJid) {
+  const key = normalizeSessionJid(senderJid);
+
+  // Fast path: check in-memory Map first
   const session = userSessions.get(key);
-  if (!session) return false;
-  return Date.now() - session.lastActive <= SESSION_TTL_MS;
+  if (session && Date.now() - session.lastActive <= SESSION_TTL_MS) {
+    return true;
+  }
+
+  // Slow path: check Supabase for persisted DM session
+  if (supabaseClient) {
+    try {
+      const cutoff = new Date(Date.now() - DM_SESSION_TTL_MS).toISOString();
+      const { data } = await supabaseClient
+        .from('dm_sessions')
+        .select('last_dm_at')
+        .eq('jid', key)
+        .gt('last_dm_at', cutoff)
+        .single();
+
+      if (data) {
+        console.log(`[DM Session] ✅ Found persisted DM session for ${key} (last: ${data.last_dm_at})`);
+        return true;
+      }
+    } catch (err) {
+      // .single() throws when no row found — not a real error
+      if (err?.code !== 'PGRST116') {
+        console.error('[DM Session Lookup Error]:', err?.message || err);
+      }
+    }
+  }
+
+  return false;
 }
 
 /**

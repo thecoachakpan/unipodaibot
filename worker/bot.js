@@ -23,6 +23,8 @@ import {
   updateSessionHistory,
   clearSessionHistory,
   hasActiveDMSession,
+  recordDMSession,
+  initSessionSupabase,
   stopCleanupTimer
 } from './sessionManager.js';
 import { uploadToGoogleDrive, downloadFromGoogleDrive } from './googleDrive.js';
@@ -1066,6 +1068,7 @@ async function startBot() {
       latestQrString = null;
       console.log('✅ PodPal BOT WhatsApp Worker online.');
       startReminderScheduler(sock);
+      initSessionSupabase(supabase); // Initialize Supabase-backed DM session persistence
       startGeminiCacheRefresh(); // Initialize explicit Gemini context cache for 75% cheaper system prompt billing
     }
   });
@@ -1933,7 +1936,7 @@ Respond with ONLY the JSON object, nothing else.`;
             const wantsDocPrivately = /(privately|in\s+(my\s+)?dm|to\s+(my\s+)?dm|send\s+.*dm|dm\s+me|in\s+private|send\s+privately|share\s+privately|send\s+to\s+me)/i.test(cleanLower);
 
             const hasValidDmTarget = targetDmJid && cleanSenderNum && cleanSenderNum.length <= 15;
-            const userHasDMForDoc = hasValidDmTarget && hasActiveDMSession(targetDmJid);
+            const userHasDMForDoc = hasValidDmTarget && await hasActiveDMSession(targetDmJid);
 
             console.log(`[DM Session Debug - Doc Pipeline] targetDmJid=${targetDmJid}, cleanSenderNum=${cleanSenderNum}, hasValidDmTarget=${hasValidDmTarget}, userHasDMForDoc=${userHasDMForDoc}, wantsDocPrivately=${wantsDocPrivately}`);
 
@@ -2047,6 +2050,7 @@ Respond with ONLY the JSON object, nothing else.`;
       const isFrench = ['bonjour', 'salut'].includes(cleanPrompt.toLowerCase().trim());
       const welcome = getWelcomeMessage(isFrench);
       updateSessionHistory(senderJid, cleanPrompt, welcome);
+      recordDMSession(senderJid); // Persist DM session to Supabase (survives Render spin-downs)
       console.log(`[DM Session Debug - Greeting] Session created/refreshed for senderJid=${senderJid}`);
       await sock.sendPresenceUpdate('composing', senderJid);
       await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
@@ -2161,6 +2165,7 @@ ${relevantKB}`;
           ? `${cleanPrompt} [Note: Participant requested a translation turn for quoted text. Primary conversation language remains English.]`
           : cleanPrompt;
         updateSessionHistory(senderJid, historyUserText, replyText);
+        recordDMSession(senderJid); // Persist DM session to Supabase (survives Render spin-downs)
       }
 
       // ----------------------------------------------------
@@ -2184,7 +2189,7 @@ ${relevantKB}`;
       if (isGroup && isParticipantSpecific) {
         // Use resolved phone-based DM JID for session check and delivery
         const dmCheckJid = targetDmJid || senderParticipant;
-        const userHasDM = hasActiveDMSession(dmCheckJid);
+        const userHasDM = await hasActiveDMSession(dmCheckJid);
         console.log(`[DM Session Debug - AI Pipeline] dmCheckJid=${dmCheckJid}, targetDmJid=${targetDmJid}, userHasDM=${userHasDM}`);
         const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : (validPushName || '@participant');
         // Use only phone-based JIDs for mentions (never raw LID JIDs)

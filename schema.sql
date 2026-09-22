@@ -133,3 +133,17 @@ CREATE POLICY "Authenticated full access on whatsapp_auth"
   ON public.whatsapp_auth FOR ALL
   USING (auth.role() = 'authenticated')
   WITH CHECK (auth.role() = 'authenticated');
+
+-- 7. DM Sessions Table (Persistent DM Session Tracker for Group-to-DM Routing)
+-- Survives Render free-tier spin-downs and process restarts.
+-- Bot worker uses service_role key which bypasses RLS.
+create table if not exists public.dm_sessions (
+  jid text primary key,
+  last_dm_at timestamptz not null default timezone('utc'::text, now())
+);
+
+ALTER TABLE public.dm_sessions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access on dm_sessions"
+  ON public.dm_sessions FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');
