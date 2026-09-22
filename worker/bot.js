@@ -776,10 +776,16 @@ async function getRelevantKnowledgeContext(userQuery, maxEntries = 5) {
 
   return topEntries.map(s => {
     const e = s.entry;
-    // Strip Drive URLs from KB context to prevent Gemini from leaking them in responses
-    const sanitizedContent = (e.content || '').replace(/\[Download [^\]]*\]\(https:\/\/drive\.google\.com[^)]*\)/gi, '[Official Document — request as native attachment]')
-                                              .replace(/https:\/\/drive\.google\.com\/[^\s)"']*/gi, '[REDACTED_DRIVE_URL]');
-    return `### [${e.course_name}]\n${sanitizedContent}`;
+    const content = e.content || '';
+    // Only strip Drive URLs from internal document upload entries ("### Document:" pattern).
+    // Meeting recording links and other shareable Drive URLs are preserved.
+    const isDocUploadEntry = content.startsWith('### Document:');
+    if (isDocUploadEntry) {
+      const sanitizedContent = content.replace(/\[Download [^\]]*\]\(https:\/\/drive\.google\.com[^)]*\)/gi, '[Official Document — request as native file attachment]')
+                                      .replace(/https:\/\/drive\.google\.com\/[^\s)"']*/gi, '[native attachment available — ask bot to share the file]');
+      return `### [${e.course_name}]\n${sanitizedContent}`;
+    }
+    return `### [${e.course_name}]\n${content}${e.link_url ? `\nLink: ${e.link_url}` : ''}`;
   }).join('\n---\n');
 }
 
@@ -2152,9 +2158,10 @@ ${relevantKB}`;
 
       replyText = formatWhatsAppMarkdown(replyText || 'Unable to generate response.');
 
-      // Drive Privacy Shield: Strip any Google Drive URLs from AI responses before delivery
-      replyText = replyText.replace(/\[Download [^\]]*\]\(https:\/\/drive\.google\.com[^)]*\)/gi, '[Official document — ask me to upload the file directly]')
-                           .replace(/https:\/\/drive\.google\.com\/[^\s)"']*/gi, '[document available as native attachment — ask me to share the file]');
+      // Drive Privacy Shield: Strip internal document storage Drive URLs from AI responses.
+      // Only strips "[Download ...](drive.google.com/...)" patterns (from document upload KB entries).
+      // Meeting recording links and other shared Drive file URLs are preserved.
+      replyText = replyText.replace(/\[Download [^\]]*\]\(https:\/\/drive\.google\.com[^)]*\)/gi, '[Official document — ask me to upload the file directly]');
 
       bufferChatMessage(senderJid, rawBotId, 'PodPal BOT', replyText, true);
 
