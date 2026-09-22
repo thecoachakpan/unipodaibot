@@ -294,22 +294,30 @@ function getParticipantTimezone(jidStr) {
 }
 
 /**
- * Formats a Date object into participant's local timezone.
+ * Formats a Date object into multi-timezone display string.
+ * Primary timezone is CAT, with WAT and EAT shown in brackets.
  */
-function formatLocalTime(dateObj, tzInfo) {
-  const localDate = new Date(dateObj.getTime() + tzInfo.utcOffset * 3600 * 1000);
-  const hours = localDate.getUTCHours();
-  const mins = localDate.getUTCMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const h12 = hours % 12 || 12;
-  const timeStr = `${h12}:${mins < 10 ? '0' : ''}${mins} ${ampm}`;
+function formatLocalTime(dateObj, _tzInfo) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const dayName = days[localDate.getUTCDay()];
-  const monthName = months[localDate.getUTCMonth()];
-  const dayNum = localDate.getUTCDate();
-  
-  return `${dayName}, ${dayNum} ${monthName} @ ${timeStr} ${tzInfo.tzName}`;
+
+  function fmtTz(dateObj2, utcOffset, tzLabel) {
+    const d = new Date(dateObj2.getTime() + utcOffset * 3600 * 1000);
+    const h = d.getUTCHours();
+    const m = d.getUTCMinutes();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    const timeStr = `${h12}:${m < 10 ? '0' : ''}${m} ${ampm}`;
+    const dayName = days[d.getUTCDay()];
+    const monthName = months[d.getUTCMonth()];
+    const dayNum = d.getUTCDate();
+    return `${dayName}, ${dayNum} ${monthName} @ ${timeStr} ${tzLabel}`;
+  }
+
+  const catStr = fmtTz(dateObj, 2, 'CAT');
+  const watStr = fmtTz(dateObj, 1, 'WAT');
+  const eatStr = fmtTz(dateObj, 3, 'EAT');
+  return `${catStr} (${watStr} | ${eatStr})`;
 }
 
 let runtimeConfig = { is_active: true, chat_scope: 'both' };
@@ -792,7 +800,7 @@ RULES:
 5. Screenshot Prompt: For vague technical errors/login issues, ask for a screenshot before troubleshooting.
 6. Past Meetings: Offer executive summaries and key action items from session transcripts.
 7. WhatsApp Bold: Use *single asterisks* only. Never output **.
-8. Timezones: Always include CAT (UTC+2) / WAT (UTC+1) / EAT (UTC+3) / GMT.
+8. Timezones: Always show CAT (UTC+2) as the PRIMARY timezone first, then include WAT (UTC+1) and EAT (UTC+3) in brackets. Format: "<time/date> CAT (WAT: <time/date> | EAT: <time/date>)". NEVER compute day-of-week names yourself—use the exact day name provided in [System Time].
 9. Focus Shield: Assist with cohort-related topics only. Output "[OFF_TOPIC]" for completely unrelated prompts.
 10. Names: Use ONLY the verified WhatsApp PushName from prompt context. Never invent names.
 11. Satisfaction: Acknowledge gratitude warmly. For dissatisfaction, apologize and ask clarifying questions. If persistent after accurate help, escalate: "Reach out to program admins (@Gift, @Diane, @Charles, @Jeovaire, @Munira) or email unipods.regional@undp.org."
@@ -863,13 +871,19 @@ function startGeminiCacheRefresh() {
 
 /**
  * Returns live timestamp string to append to user turn payload without invalidating static prompt cache.
+ * Includes explicit day-of-week name to prevent Gemini from hallucinating incorrect day names.
  */
 function getLiveTimestampContext() {
   const now = new Date();
-  const catTime = new Date(now.getTime() + 2 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' CAT';
-  const watTime = new Date(now.getTime() + 1 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' WAT';
-  const eatTime = new Date(now.getTime() + 3 * 3600 * 1000).toISOString().replace('T', ' ').substring(0, 19) + ' EAT';
-  return `[System Time: ${catTime} / ${watTime} / ${eatTime}]`;
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const catDate = new Date(now.getTime() + 2 * 3600 * 1000);
+  const watDate = new Date(now.getTime() + 1 * 3600 * 1000);
+  const eatDate = new Date(now.getTime() + 3 * 3600 * 1000);
+  const catDay = days[catDate.getUTCDay()];
+  const catTime = catDate.toISOString().replace('T', ' ').substring(0, 19);
+  const watTime = watDate.toISOString().replace('T', ' ').substring(0, 19);
+  const eatTime = eatDate.toISOString().replace('T', ' ').substring(0, 19);
+  return `[System Time: ${catDay}, ${catTime} CAT (WAT: ${watTime} | EAT: ${eatTime})]`;
 }
 
 /**
@@ -1596,7 +1610,7 @@ async function startBot() {
             offsetDisplay = 'At scheduled event time';
           }
           await sock.sendMessage(senderJid, {
-            text: `✅ *Event Scheduled!*\n\n📌 *${eventTitle}*\n📅 ${eventDate.toLocaleTimeString()} (${eventDate.toDateString()})\n🔔 Delivery: ${offsetDisplay}`
+            text: `✅ *Event Scheduled!*\n\n📌 *${eventTitle}*\n📅 ${formatLocalTime(eventDate, { tzName: 'CAT', utcOffset: 2 })}\n🔔 Delivery: ${offsetDisplay}`
           }, { quoted: msg });
           return;
         }
