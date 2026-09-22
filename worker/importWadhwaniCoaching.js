@@ -50,19 +50,19 @@ const entries = [
     course_name: 'Wadhwani',
     source_type: 'coaching_session',
     content: `### Wadhwani Coaching — Founder Pitch Reviews (Healthcare & Agriculture)
-- **Maternal Care (Adunni)**: Healthcare providers struggle to deliver timely maternal care due to specialist shortages and high patient volume, leading to delayed complication detection and preventable mortality.
-- **Emergency Blood Matching (Sabrien/Cyprian)**: Families and hospitals in Nigeria struggle to find compatible blood quickly during emergencies due to the lack of a real-time system connecting eligible donors with patients.
-- **Ambulance Clinical Data (Brooke)**: Critically ill and trauma patients face preventable clinical deterioration because ambulances cannot transmit real-time clinical data to hospital emergency departments prior to arrival.
-- **Maize Crop Disease (Zina)**: 80% of maize smallholder farmers in South Sudan face recurring crop disease outbreaks, resulting in up to 75% annual yield loss due to unmanaged environmental factors.`
+- **Maternal Care**: Healthcare providers struggle to deliver timely maternal care due to specialist shortages and high patient volume, leading to delayed complication detection and preventable mortality.
+- **Emergency Blood Matching**: Families and hospitals in Nigeria struggle to find compatible blood quickly during emergencies due to the lack of a real-time system connecting eligible donors with patients.
+- **Ambulance Clinical Data**: Critically ill and trauma patients face preventable clinical deterioration because ambulances cannot transmit real-time clinical data to hospital emergency departments prior to arrival.
+- **Maize Crop Disease**: 80% of maize smallholder farmers in South Sudan face recurring crop disease outbreaks, resulting in up to 75% annual yield loss due to unmanaged environmental factors.`
   },
   {
     course_name: 'Wadhwani',
     source_type: 'coaching_session',
     content: `### Wadhwani Coaching — Founder Pitch Reviews (Fintech, EdTech, Retail & Services)
-- **SME Tax & Bookkeeping (Oruru Edwin)**: Small business owners struggle to maintain accurate financial records and meet tax obligations because existing accounting tools are overly complex, leading to penalties and poor financial visibility.
-- **Technical Founder Distribution Trap (Yusuf)**: Homogeneous technical founding teams struggle to distribute and market their products due to operational over-focus, leading to low traction and business failure.
-- **Indigenous Language Exclusion (Ismaila)**: Millions of non-English/French speaking Africans are locked out of digital goods and services because digital platforms require European text literacy.
-- **Youth Tech Pathways (Haruna)**: Young Africans seeking high-income tech careers face expensive training or fragmented free resources, leaving them without structured pathways needed to convert skills into income.`
+- **SME Tax & Bookkeeping**: Small business owners struggle to maintain accurate financial records and meet tax obligations because existing accounting tools are overly complex, leading to penalties and poor financial visibility.
+- **Technical Founder Distribution Trap**: Homogeneous technical founding teams struggle to distribute and market their products due to operational over-focus, leading to low traction and business failure.
+- **Indigenous Language Exclusion**: Millions of non-English/French speaking Africans are locked out of digital goods and services because digital platforms require European text literacy.
+- **Youth Tech Pathways**: Young Africans seeking high-income tech careers face expensive training or fragmented free resources, leaving them without structured pathways needed to convert skills into income.`
   },
   {
     course_name: 'Wadhwani',
