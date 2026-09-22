@@ -57,28 +57,28 @@
 
 ## 4. Cleaned Participant Q&A Transcript
 
-### Q1 (Kasama Patric): My dashboard shows generic public courses like "Introduction to CS" instead of Universal AI. How do I fix this?
+### Q1: My dashboard shows generic public courses like "Introduction to CS" instead of Universal AI. How do I fix this?
 **Maria Segala & Victor Akpan:** Do not browse the public MIT catalog. Open the specific invitation link sent to your email, set your password, log in, and click **"Dashboard"** at the top right of your screen. That opens your master view showing all 16 Universal AI modules.
 
-### Q2 (Yada & Khlalo): How should teams divide work if only one person received the email invite? Can another team member be swapped or added?
+### Q2: How should teams divide work if only one person received the email invite? Can another team member be swapped or added?
 **Gift Ntuli:** Only the registered primary applicant is enrolled, and that name will appear on the final certificate. We cannot perform email swaps or issue extra licences due to strict institutional grants across 242 teams. Instead, practice division of labour: the team leader can share login credentials with technical teammates to complete the coursework.
 
-### Q3 (Witness Lubisi): Why are some dashboard tabs (like Resources, Policies, and Glossary) missing on our end?
+### Q3: Why are some dashboard tabs (like Resources, Policies, and Glossary) missing on our end?
 **Maria Segala:** Learners currently see four tabs. I will follow up with the MIT engineering team to ensure the Resources, Policies, and Glossary tabs are fully visible across all cohort accounts.
 
-### Q4 (Sunday): Can I fast-forward videos if I am already experienced in Python or data analytics? Are recitations mandatory?
+### Q4: Can I fast-forward videos if I am already experienced in Python or data analytics? Are recitations mandatory?
 **Maria Segala:** Yes. Video watch time and recitations are not graded. Your score is determined by the Graded Assignments (80%) and Knowledge Checks (20%). Achieving 60% overall earns the certificate.
 
-### Q5 (Mark): What is the monetary value of this MIT sponsorship per innovator?
+### Q5: What is the monetary value of this MIT sponsorship per innovator?
 **Gift Ntuli:** The institutional value is approximately **$900 USD per licence** funded for this cohort.
 
-### Q6 (Tito): Why does the course redirect back to Introduction after completing a lesson? How do we move to the next course?
+### Q6: Why does the course redirect back to Introduction after completing a lesson? How do we move to the next course?
 **Maria Segala:** Click **Dashboard** at the top right of your screen. That opens your master view showing the full sequence of modules (including Python Coding Part 1 and Part 2), each with its own "Start" or "Continue" button.
 
-### Q7 (Emmanuel): Is completing MIT Universal AI mandatory if someone already holds equivalent certifications?
+### Q7: Is completing MIT Universal AI mandatory if someone already holds equivalent certifications?
 **Gift Ntuli:** Yes. Universal AI completion is an essential eligibility gate for downstream stages, including the Ethiopian AI Institute advanced program, grant funding, and the Addis Ababa bootcamp.
 
-### Q8 (Joy & Tamiru): Do we need to take all vertical modules to receive the Universal AI Certificate?
+### Q8: Do we need to take all vertical modules to receive the Universal AI Certificate?
 **Maria Segala & Gift Ntuli:** No. Completing the 16 foundational modules earns the Programme Certificate. Vertical modules are optional additions tailored to your venture's industry.
 
 ---
