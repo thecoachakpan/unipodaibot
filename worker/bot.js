@@ -2056,8 +2056,10 @@ Respond with ONLY the JSON object, nothing else.`;
       const isFrench = ['bonjour', 'salut'].includes(cleanPrompt.toLowerCase().trim());
       const welcome = getWelcomeMessage(isFrench);
       updateSessionHistory(senderJid, cleanPrompt, welcome);
-      recordDMSession(senderJid); // Persist DM session to Supabase (survives Render spin-downs)
-      console.log(`[DM Session Debug - Greeting] Session created/refreshed for senderJid=${senderJid}`);
+      // Record DM session under phone-based JID (targetDmJid) for cross-context group→DM lookup.
+      // senderJid in DMs can be a @lid JID, but group-side resolves to phone-based @s.whatsapp.net.
+      recordDMSession(targetDmJid || senderJid);
+      console.log(`[DM Session Debug - Greeting] senderJid=${senderJid}, persistedAs=${targetDmJid || senderJid}`);
       await sock.sendPresenceUpdate('composing', senderJid);
       await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
       await sock.sendPresenceUpdate('paused', senderJid);
@@ -2172,7 +2174,8 @@ ${relevantKB}`;
           ? `${cleanPrompt} [Note: Participant requested a translation turn for quoted text. Primary conversation language remains English.]`
           : cleanPrompt;
         updateSessionHistory(senderJid, historyUserText, replyText);
-        recordDMSession(senderJid); // Persist DM session to Supabase (survives Render spin-downs)
+        // Record DM session under phone-based JID for cross-context group→DM lookup
+        recordDMSession(targetDmJid || senderJid);
       }
 
       // ----------------------------------------------------
