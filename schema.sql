@@ -79,3 +79,4 @@ create table if not exists public.document_catalog (
 alter publication supabase_realtime add table public.bot_config;
 alter publication supabase_realtime add table public.scheduled_reminders;
 alter publication supabase_realtime add table public.document_catalog;
+alter publication supabase_realtime add table public.knowledge_entries;

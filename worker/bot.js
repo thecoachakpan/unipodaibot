@@ -321,6 +321,8 @@ function formatLocalTime(dateObj, _tzInfo) {
 }
 
 let runtimeConfig = { is_active: true, chat_scope: 'both' };
+let lastConfigFetchTimestamp = 0;
+const CONFIG_POLL_INTERVAL_MS = 15000; // 15-second polling fallback
 const userCooldowns = new Map();
 
 /**
@@ -915,23 +917,60 @@ I’m *PodPal BOT*, your 24/7 assistant for *MIT Universal AI*, *Wadhwani Ignite
 *How can I help you today?* 😊`;
 }
 
+/**
+ * Returns latest bot config with 15s polling fallback if Realtime fails/disconnects
+ */
+async function getRuntimeConfig() {
+  const now = Date.now();
+  if (now - lastConfigFetchTimestamp > CONFIG_POLL_INTERVAL_MS) {
+    try {
+      const { data } = await supabase.from('bot_config').select('is_active, chat_scope').eq('id', 1).single();
+      if (data) {
+        runtimeConfig = data;
+        lastConfigFetchTimestamp = now;
+      }
+    } catch (err) {
+      console.error('[Config Fetch Error]:', err?.message);
+    }
+  }
+  return runtimeConfig;
+}
+
 let realtimeInitialized = false;
 
 /**
- * Realtime configuration listener for master kill-switch & scope selector.
+ * Realtime configuration listener for master kill-switch, scope selector, & knowledge base entries.
  */
 async function setupConfigRealtime() {
-  const { data } = await supabase.from('bot_config').select('is_active, chat_scope').eq('id', 1).single();
-  if (data) runtimeConfig = data;
+  try {
+    const { data } = await supabase.from('bot_config').select('is_active, chat_scope').eq('id', 1).single();
+    if (data) {
+      runtimeConfig = data;
+      lastConfigFetchTimestamp = Date.now();
+    }
+  } catch (err) {
+    console.error('[Config Initial Fetch Error]:', err?.message);
+  }
 
   if (realtimeInitialized) return;
   realtimeInitialized = true;
 
+  // 1. Listen to bot_config updates
   supabase
     .channel('bot_runtime_sync')
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bot_config', filter: 'id=eq.1' }, payload => {
       runtimeConfig = { is_active: payload.new.is_active, chat_scope: payload.new.chat_scope };
-      console.log('[Config Updated Live]:', runtimeConfig);
+      lastConfigFetchTimestamp = Date.now();
+      console.log('[Config Updated Live via Realtime]:', runtimeConfig);
+    })
+    .subscribe();
+
+  // 2. Listen to knowledge_entries updates from Admin Dashboard
+  supabase
+    .channel('kb_runtime_sync')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'knowledge_entries' }, () => {
+      console.log('🔄 [KB Cache Flushed]: Realtime knowledge_entries update received from dashboard/database.');
+      invalidateSystemInstructionCache();
     })
     .subscribe();
 }
@@ -1009,7 +1048,9 @@ async function startBot() {
    try {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
-    if (!runtimeConfig.is_active) return; // Master Kill Switch
+
+    const currentConfig = await getRuntimeConfig();
+    if (!currentConfig.is_active) return; // Master Kill Switch
 
     const senderJid = msg.key.remoteJid;
     const isGroup = senderJid.endsWith('@g.us');
@@ -1332,7 +1373,7 @@ async function startBot() {
     const isCommandOrAction = cleanPrompt.startsWith('!') || /(translate|traduire|traduis|send.*privately|send.*dm|summarize|remind|poll|event|post|respond|answer)/i.test(cleanLower);
 
     if (isGroup) {
-      if (runtimeConfig.chat_scope === 'private_only') return;
+      if (currentConfig.chat_scope === 'private_only') return;
 
       // Group chat processing triggers:
       // 1. Tagged or mentioned (@bot, !ask, podpal, bot, or native @mention)
