@@ -5,7 +5,7 @@
  */
 
 /**
- * Processes messages sent by verified facilitators/admins.
+ * Processes explicit !save commands sent by verified facilitators/admins.
  */
 export async function processFacilitatorMessage(sock, msg, supabase, ai, callAiFallback) {
   try {
@@ -15,47 +15,51 @@ export async function processFacilitatorMessage(sock, msg, supabase, ai, callAiF
                     msg.message?.imageMessage?.caption ||
                     msg.message?.documentMessage?.caption || '';
 
-    if (!rawText || rawText.trim().length < 8) return;
+    // Strip !save, !savekb, !kb command prefix
+    const cleanContent = rawText.replace(/^!(savekb|save|kb)\s*/i, '').trim();
 
-    // Extract Quoted Message Context (if facilitator is replying to a participant)
+    // Extract Quoted Message Context (if facilitator is replying to a participant or previous announcement)
     const contextInfo = msg.message?.extendedTextMessage?.contextInfo ||
                         msg.message?.conversation?.contextInfo;
     const quotedText = contextInfo?.quotedMessage?.conversation ||
                        contextInfo?.quotedMessage?.extendedTextMessage?.text ||
-                       contextInfo?.quotedMessage?.imageMessage?.caption || '';
+                       contextInfo?.quotedMessage?.imageMessage?.caption ||
+                       contextInfo?.quotedMessage?.documentMessage?.caption || '';
     const quotedParticipant = contextInfo?.participant ? `@${contextInfo.participant.split('@')[0]}` : '';
 
-    let quotedContextStr = '';
+    let contentToProcess = cleanContent;
     if (quotedText) {
-      quotedContextStr = `FACILITATOR WAS QUOTE-REPLYING TO THIS PARTICIPANT (${quotedParticipant}) MESSAGE:\n"${quotedText}"`;
+      contentToProcess = cleanContent
+        ? `[Referenced Message (${quotedParticipant}): "${quotedText}"]\nFacilitator Note: "${cleanContent}"`
+        : `[Referenced Message (${quotedParticipant}): "${quotedText}"]`;
+    }
+
+    if (!contentToProcess || contentToProcess.trim().length === 0) {
+      await sock.sendMessage(senderJid, {
+        text: '⚠️ *Usage*: Type `!save <information to save>` or quote-reply to an announcement/question with `!save`.'
+      }, { quoted: msg });
+      return { success: false, reason: 'empty_content' };
     }
 
     const prompt = `
-You are analyzing a WhatsApp message posted by a Cohort Facilitator/Admin in a UniPods METI AI cohort group chat.
+You are a Knowledge Base Content Formatter for the UniPods METI AI cohort.
+An Admin/Facilitator explicitly executed a !save command to add official cohort knowledge to the bot's Knowledge Base.
 
-FACILITATOR MESSAGE CONTENT:
-"${rawText}"
-
-${quotedContextStr}
+TARGET CONTENT TO SAVE:
+"${contentToProcess}"
 
 TASK:
-1. Determine if this message contains program-relevant information (deadlines, schedules, links, portal rules, track details, assignment instructions, debunks of misleading claims, or official advice).
-   - If NOT program-related (e.g. casual greeting, personal update, simple logistics like "brb", "good morning"), set "is_program_related": false.
-2. If program-related ("is_program_related": true):
+1. Format this into a clean, structured Markdown knowledge entry.
+2. Determine:
    - "course_name": "MIT" | "Wadhwani" | "Ethiopia AI" | "General"
-   - "summary_content": A clean, structured Markdown Q&A or official guideline snippet summarizing what was communicated or debunked.
-   - "link_url": Extract any URL found in the message (or null if none).
-   - "emoji_reaction": Choose the best single emoji reaction:
-     - "📌" for announcements, schedules, links, or documents.
-     - "🧠" for Q&As, platform guidance, or track instructions.
-     - "✅" for debunking misconceptions, clarifying rumors, or confirming correct rules.
-     - "💡" for tips, advice, or coaching insights.
-   - "verifies_previous_info": boolean (true if this corrects or updates previously communicated info).
-   - "verification_note": Brief text if it updates past info (e.g., "Updated UN GA demo deadline to Sept 20.").
+   - "summary_content": A structured Markdown Q&A or official guideline snippet summarizing the rule, deadline, or answer.
+   - "link_url": Extract any URL found in the text (or null if none).
+   - "emoji_reaction": "📌" (for announcements/deadlines) or "🧠" (for FAQs/guidelines).
+   - "verifies_previous_info": boolean (true if this corrects/updates previously saved info).
+   - "verification_note": Brief text if it updates past info (or null).
 
 Return STRICT JSON only matching this exact schema:
 {
-  "is_program_related": boolean,
   "course_name": string,
   "summary_content": string,
   "link_url": string | null,
@@ -73,9 +77,12 @@ Return STRICT JSON only matching this exact schema:
     if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/```/g, '').trim();
 
     const result = JSON.parse(cleanJson);
-    if (!result || !result.is_program_related || !result.summary_content) return;
+    if (!result || !result.summary_content) {
+      await sock.sendMessage(senderJid, { text: '❌ Failed to parse knowledge entry. Please try again.' }, { quoted: msg });
+      return { success: false };
+    }
 
-    console.log(`[Facilitator AI Pipeline] 🧠 Auto-extracted knowledge entry (${result.course_name}): ${result.summary_content.substring(0, 80)}...`);
+    console.log(`[Facilitator KB Pipeline] 🧠 Saved knowledge entry (${result.course_name}): ${result.summary_content.substring(0, 80)}...`);
 
     // 1. Insert into Supabase knowledge_entries
     const { data: inserted, error: dbErr } = await supabase.from('knowledge_entries').insert({
@@ -85,38 +92,37 @@ Return STRICT JSON only matching this exact schema:
       link_url: result.link_url || null
     }).select().single();
 
-    if (dbErr) console.error('[Facilitator AI Pipeline] Supabase Insert Error:', dbErr);
+    if (dbErr) {
+      console.error('[Facilitator KB Pipeline] Supabase Insert Error:', dbErr);
+      await sock.sendMessage(senderJid, { text: `❌ Database insert error: ${dbErr.message}` }, { quoted: msg });
+      return { success: false };
+    }
 
-    // 2. React to facilitator's WhatsApp message with appropriate emoji
-    const reactionEmoji = result.emoji_reaction || '🧠';
+    // 2. React to facilitator's WhatsApp message with emoji
+    const reactionEmoji = result.emoji_reaction || '📌';
     try {
       await sock.sendMessage(senderJid, {
-        react: {
-          text: reactionEmoji,
-          key: msg.key
-        }
+        react: { text: reactionEmoji, key: msg.key }
       });
-      console.log(`[Facilitator AI Pipeline] 🎭 Reacted with ${reactionEmoji} to facilitator message.`);
-    } catch (reactErr) {
-      console.warn('[Facilitator AI Pipeline] Reaction error:', reactErr?.message || reactErr);
-    }
+    } catch (reactErr) {}
 
-    // 3. Verification Notice (If facilitator corrected/updated previous info)
-    if (result.verifies_previous_info && result.verification_note) {
-      try {
-        await sock.sendMessage(senderJid, {
-          text: `ℹ️ *Official Facilitator Update Verified*:\n${result.verification_note}\n\n*Updated Knowledge Base Context*: ${result.summary_content}`
-        }, { quoted: msg });
-      } catch (verErr) {
-        console.warn('[Facilitator AI Pipeline] Verification note error:', verErr?.message || verErr);
-      }
-    }
+    // 3. Post confirmation receipt on WhatsApp
+    const receiptText = `📌 *Saved to Knowledge Base*:\n\n*Category*: ${result.course_name}\n${result.summary_content}${result.link_url ? `\n*Link*: ${result.link_url}` : ''}`;
+    try {
+      await sock.sendMessage(senderJid, { text: receiptText }, { quoted: msg });
+    } catch (sendErr) {}
 
     // 4. Retroactive Unresolved Queries Resolution
     resolvePastUnansweredQueries(sock, supabase, callAiFallback, result.summary_content);
 
+    return { success: true, summaryContent: result.summary_content };
+
   } catch (err) {
-    console.error('[Facilitator AI Pipeline Error]:', err?.message || err);
+    console.error('[Facilitator KB Pipeline Error]:', err?.message || err);
+    try {
+      await sock.sendMessage(msg.key.remoteJid, { text: `❌ Error saving knowledge entry: ${err?.message || err}` }, { quoted: msg });
+    } catch (_) {}
+    return { success: false, error: err?.message };
   }
 }
 

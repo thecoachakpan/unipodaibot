@@ -661,10 +661,25 @@ function findMissedUnrespondedQuestion(chatJid, participantJid) {
   return null;
 }
 
+let cachedSystemInstruction = null;
+let cachedSystemInstructionTimestamp = 0;
+const SYSTEM_INSTRUCTION_TTL_MS = 10 * 60 * 1000; // 10-minute cache TTL
+
+export function invalidateSystemInstructionCache() {
+  cachedSystemInstruction = null;
+  cachedSystemInstructionTimestamp = 0;
+  console.log('🔄 [System Instruction Cache]: Cache invalidated.');
+}
+
 /**
- * Returns system instruction containing live knowledge base entries from Supabase for Gemini on every request.
+ * Returns system instruction containing live knowledge base entries from Supabase with in-memory caching.
  */
 async function getStaticSystemInstruction() {
+  const now = Date.now();
+  if (cachedSystemInstruction && (now - cachedSystemInstructionTimestamp < SYSTEM_INSTRUCTION_TTL_MS)) {
+    return cachedSystemInstruction;
+  }
+
   const { data: entries } = await supabase
     .from('knowledge_entries')
     .select('course_name, content, link_url')
@@ -674,7 +689,7 @@ async function getStaticSystemInstruction() {
     ? entries.map(e => `### [Category: ${e.course_name}]\n${e.content}${e.link_url ? `\nLink: ${e.link_url}` : ''}`).join('\n\n---\n\n')
     : 'No active guidelines registered.';
 
-  return `
+  cachedSystemInstruction = `
 You are PodPal BOT, the official AI Assistant for the UniPods METI AI Innovation Cohort.
 
 SUPPORTED TRACKS:
@@ -772,8 +787,9 @@ STRICT CONSTRAINTS & BEHAVIOR:
 CRITICAL DEADLINE COMPARISON INSTRUCTIONS:
 - ONLY discuss or evaluate deadlines when the user explicitly asks about deadlines, schedules, submission dates, or upcoming milestones.
 - DO NOT append unsolicited deadline notices, reminders, or countdowns to answers that are unrelated to deadlines (e.g., login issues, track FAQs).
-- UN General Assembly Demo Video Deadline: Friday, 18 Sept 2026 @ 2:00 PM CAT (12:00 PM GMT / 1:00 PM WAT).
 `.trim();
+  cachedSystemInstructionTimestamp = now;
+  return cachedSystemInstruction;
 }
 
 /**
@@ -1050,10 +1066,23 @@ async function startBot() {
     // Voice note group guardrail removed — multimodal messages now handled in group context
 
     // ----------------------------------------------------
-    // PIPELINE 1.5: FACILITATOR AI AUTO-SUMMARIZER & KNOWLEDGE PIPELINE
+    // PIPELINE 1.5: ADMIN EXPLICIT !SAVE KNOWLEDGE BASE COMMAND
     // ----------------------------------------------------
-    if (isGroup && isFacilitator) {
-      processFacilitatorMessage(sock, msg, supabase, ai, callAiWithFallbackChain);
+    const isSaveCommand = cleanLower.startsWith('!save') || cleanLower.startsWith('!savekb') || cleanLower.startsWith('!kb');
+    if (isSaveCommand) {
+      if (isFacilitator) {
+        await sock.sendPresenceUpdate('composing', senderJid);
+        const saveRes = await processFacilitatorMessage(sock, msg, supabase, ai, callAiWithFallbackChain);
+        if (saveRes?.success) {
+          invalidateSystemInstructionCache();
+        }
+        await sock.sendPresenceUpdate('paused', senderJid);
+        return;
+      } else {
+        await sock.sendPresenceUpdate('paused', senderJid);
+        await sock.sendMessage(senderJid, { text: '⚠️ Only verified program facilitators/admins can execute the `!save` command.' }, { quoted: msg });
+        return;
+      }
     }
 
     // ----------------------------------------------------
