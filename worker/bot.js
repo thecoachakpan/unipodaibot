@@ -1263,24 +1263,6 @@ async function startBot() {
     if (isGratitude && cleanLower.split(/\s+/).length < 12) {
       const happyEmojis = ['🙏', '😊', '💙', '👍'];
       const chosenEmoji = happyEmojis[Math.floor(Math.random() * happyEmojis.length)];
-      const isFrench = cleanLower.includes('merci');
-
-      const replyPhrasesEn = [
-        "😊 You're very welcome! Always happy to help with your METI AI journey!",
-        "🙏 Glad that helped! Let me know if you need anything else.",
-        "💙 You're welcome! Keep building great things!",
-        "👍 Happy to assist! Wishing you a fantastic cohort week!"
-      ];
-      const replyPhrasesFr = [
-        "😊 De rien ! Toujours ravi de vous aider dans votre parcours METI AI !",
-        "🙏 Heureux que cela vous ait aidé ! N'hésitez pas si vous avez d'autres questions.",
-        "💙 Avec plaisir ! Continuez votre excellent travail !",
-        "👍 Ravi de vous aider ! Excellente semaine de formation !"
-      ];
-
-      const chosenPhrase = isFrench
-        ? replyPhrasesFr[Math.floor(Math.random() * replyPhrasesFr.length)]
-        : replyPhrasesEn[Math.floor(Math.random() * replyPhrasesEn.length)];
 
       try {
         // 1. Native WhatsApp Message Reaction
