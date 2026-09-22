@@ -1923,27 +1923,43 @@ Respond with ONLY the JSON object, nothing else.`;
           if (isGroup) {
             let dmSentSuccess = false;
 
-            // Detect explicit "send here / in group" intent — skip DM routing entirely
+            // Detect explicit "send here / in group" intent — deliver to group
             const wantsDocHere = /(here|in\s+(the\s+)?group|on\s+(the\s+)?group|upload\s+here|post\s+here|drop\s+here|share\s+here|send\s+here)/i.test(cleanLower);
 
-            // Only attempt private DM if:
-            // 1. User did NOT ask for in-group delivery ("here"/"in group")
-            // 2. We have a valid phone-based DM JID (not LID-derived, ≤15 digits)
-            // 3. User has an active DM session with the bot
+            // Detect explicit "send privately / to my DM" intent — attempt DM delivery
+            const wantsDocPrivately = /(privately|in\s+(my\s+)?dm|to\s+(my\s+)?dm|send\s+.*dm|dm\s+me|in\s+private|send\s+privately|share\s+privately|send\s+to\s+me)/i.test(cleanLower);
+
             const hasValidDmTarget = targetDmJid && cleanSenderNum && cleanSenderNum.length <= 15;
             const userHasDMForDoc = hasValidDmTarget && hasActiveDMSession(targetDmJid);
 
-            if (!wantsDocHere && hasValidDmTarget && userHasDMForDoc) {
-              try {
-                await sock.sendMessage(targetDmJid, {
-                  document: pdfBuffer,
-                  fileName: targetDoc.file_name,
-                  mimetype: 'application/pdf',
-                  caption: `📄 *${targetDoc.title}*\n\nHere is your official document requested in the group!`
-                });
-                dmSentSuccess = true;
-              } catch (dmSendErr) {
-                console.error('[Document DM Delivery Error - Falling back to group]:', dmSendErr);
+            // DM routing logic — default is CURRENT CHAT LOCATION (group → group).
+            // Only attempt DM delivery when user explicitly asks for private delivery.
+            if (!wantsDocHere && wantsDocPrivately) {
+              if (hasValidDmTarget && userHasDMForDoc) {
+                // User wants private delivery AND has an active DM session → send to DM
+                try {
+                  await sock.sendMessage(targetDmJid, {
+                    document: pdfBuffer,
+                    fileName: targetDoc.file_name,
+                    mimetype: 'application/pdf',
+                    caption: `📄 *${targetDoc.title}*\n\nHere is your official document requested in the group!`
+                  });
+                  dmSentSuccess = true;
+                } catch (dmSendErr) {
+                  console.error('[Document DM Delivery Error - Falling back to group]:', dmSendErr);
+                }
+              } else if (hasValidDmTarget) {
+                // User wants private delivery BUT has no active DM session → prompt to open DM first
+                const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : (validPushName || '@participant');
+                const dmPhoneJid = targetDmJid || (resolvedParticipant && !resolvedParticipant.includes('@lid') ? resolvedParticipant : null);
+                const mentionJids = dmPhoneJid ? [dmPhoneJid] : [rawParticipant];
+
+                await sock.sendPresenceUpdate('paused', senderJid);
+                await sock.sendMessage(senderJid, {
+                  text: `Hi ${displayTag}! 📩 To receive *${targetDoc.title}* in your private DM, please send me a quick *\"Hi\"* in a direct message first — then ask again and I'll deliver it privately! 😊`,
+                  mentions: mentionJids
+                }, { quoted: msg });
+                return;
               }
             }
 
@@ -1956,13 +1972,16 @@ Respond with ONLY the JSON object, nothing else.`;
             const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : (validPushName || '@participant');
 
             if (dmSentSuccess) {
-              // Confirm in group with working native tag
+              // Confirm in group with working native tag + 📩 reaction
               await sock.sendMessage(senderJid, {
                 text: `📄 ${displayTag}, I've sent *${targetDoc.title}* directly to your private DM! Check your chat with me. 😊`,
                 mentions: mentionsList
               }, { quoted: msg });
+              try {
+                await sock.sendMessage(senderJid, { react: { text: '📩', key: msg.key } });
+              } catch (_) {}
             } else {
-              // Upload directly into group so user always receives the file
+              // Default: Upload directly into group (current chat location)
               await sock.sendMessage(senderJid, {
                 document: pdfBuffer,
                 fileName: targetDoc.file_name,
