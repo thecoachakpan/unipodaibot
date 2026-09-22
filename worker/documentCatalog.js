@@ -50,6 +50,26 @@ export const DEFAULT_DOCUMENT_CATALOG = [
     description: 'Clean, filler-free verbatim speaker transcript of Wadhwani Module 1 class session.'
   },
   {
+    doc_key: 'wadhwani_coaching_summary',
+    title: 'Wadhwani Ignite Module 1 Problem Statement Coaching & Live Founder Q&A Summary',
+    file_name: 'Wadhwani_Problem_Statement_Coaching_Summary.md',
+    drive_file_id: null,
+    keywords: ['wadhwani coaching', 'problem statement coaching', 'beneficiary vs paying customer', 'shop pilot statement', 'coaching summary', 'pitch critique'],
+    category: 'Wadhwani',
+    is_available: true,
+    description: 'Official coaching guide, character limit rules, beneficiary vs paying customer rules, Shop Pilot benchmark, and 19 live founder pitch reviews.'
+  },
+  {
+    doc_key: 'wadhwani_coaching_transcript',
+    title: 'Wadhwani Ignite Problem Statement Coaching Cleaned Verbatim Transcript',
+    file_name: 'Wadhwani_Problem_Statement_Coaching_Clean_Transcript.md',
+    drive_file_id: null,
+    keywords: ['wadhwani coaching transcript', 'problem statement coaching transcript', 'coaching transcript', 'charles bolton coaching'],
+    category: 'Wadhwani',
+    is_available: true,
+    description: 'Clean, filler-free verbatim speaker transcript of Wadhwani Problem Statement Coaching session.'
+  },
+  {
     doc_key: 'wadhwani_template',
     title: 'Wadhwani Business Model & Venture Canvas Template',
     file_name: 'Wadhwani_Business_Model_Template.pdf',
