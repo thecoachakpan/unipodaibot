@@ -1956,7 +1956,7 @@ Respond with ONLY the JSON object, nothing else.`;
 
                 await sock.sendPresenceUpdate('paused', senderJid);
                 await sock.sendMessage(senderJid, {
-                  text: `Hi ${displayTag}, I can send messages to you privately, kindly send me 'Hi' in a private DM so I can assist you with program-related questions. 😊`,
+                  text: `Hi ${displayTag}, I can send messages to you privately. Kindly send me 'Hi' in a private DM so I can assist you with program-related questions. 😊`,
                   mentions: mentionJids
                 }, { quoted: msg });
                 return;
@@ -2195,7 +2195,7 @@ ${relevantKB}`;
           }
         } else {
           // Prompt user to initiate DM
-          const dmPrompt = `Hi ${displayTag}, I can send messages to you privately, kindly send me 'Hi' in a private DM so I can assist you with program-related questions. 😊`;
+          const dmPrompt = `Hi ${displayTag}, I can send messages to you privately. Kindly send me 'Hi' in a private DM so I can assist you with program-related questions. 😊`;
           await sock.sendPresenceUpdate('paused', senderJid);
           await sock.sendMessage(senderJid, { text: dmPrompt, mentions: mentionJids }, { quoted: msg });
           return;
