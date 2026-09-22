@@ -918,6 +918,29 @@ I’m *PodPal BOT*, your 24/7 assistant for *MIT Universal AI*, *Wadhwani Ignite
 }
 
 /**
+ * Context-Aware Emoji Picker (AI-Powered)
+ * Uses a lightweight Gemini call to read a single message and output exactly ONE
+ * contextually relevant emoji. Ultra-low token cost: ~150 input + 1-5 output tokens.
+ */
+async function pickContextualEmoji(messageText) {
+  const systemPrompt = `Pick exactly ONE emoji that best matches the tone/topic of this WhatsApp group message about an AI education program. Output ONLY the emoji character, nothing else. Examples: 🔥 exciting, 📚 learning, 💪 motivation, 🎯 goals/deadlines, 📋 schedules, 🎉 celebrations, 💡 tips/info, ⭐ important, 😂 funny, 🙏 gratitude, 👏 achievements, 📢 announcements, 🤔 questions, ❤️ supportive, 🚀 progress, 👀 interesting, 🎓 academic, ✅ completed, 📌 pinned/noted, 💼 professional, 🤝 collaboration, 🏆 wins, 🎬 recordings/videos, 📝 assignments, ⏰ time-sensitive.`;
+
+  try {
+    const emoji = await callAiWithFallbackChain(messageText, systemPrompt);
+    const cleaned = (emoji || '').trim();
+    // Validate: must be short (emoji can be multi-byte) and not plain text
+    if (cleaned.length > 0 && cleaned.length <= 8 && !/[a-zA-Z0-9]{2,}/.test(cleaned)) {
+      return cleaned;
+    }
+  } catch (err) {
+    console.warn('[Context Emoji] AI pick failed, using fallback:', err?.message);
+  }
+  // Fallback: random from safe defaults
+  const fallbacks = ['👍', '💡', '⭐', '🔥', '📌'];
+  return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+}
+
+/**
  * Returns latest bot config with 15s polling fallback if Realtime fails/disconnects
  */
 async function getRuntimeConfig() {
@@ -1376,47 +1399,51 @@ async function startBot() {
       if (currentConfig.chat_scope === 'private_only') return;
 
       if (currentConfig.chat_scope === 'group_deactivated') {
-        // 1. Participant/Admin mentions or tags PodPal BOT in group: Quote-reply directing them to Private DM
-        if (isTagged || isQuotedBotReply) {
+        // Bot mention detection for group_deactivated scope:
+        // Requires "podpal" (case-insensitive) to trigger DM nudge — standalone "bot" does NOT trigger.
+        // Also triggers on native WhatsApp @mention of bot JID or quote-replying a bot message.
+        const isGroupBotMention = isQuotedBotReply ||
+          isBotMentionedNative ||
+          /podpal/i.test(rawText) ||
+          cleanLower.includes('!ask') || cleanLower.includes('!respond') || cleanLower.includes('!answer');
+
+        // 1. Participant/Admin mentions or tags PodPal BOT in group: Contextual quote-reply directing them to Private DM
+        if (isGroupBotMention) {
           const greetName = validPushName ? validPushName : `@${cleanSenderNum || senderParticipant.split('@')[0]}`;
-          const redirectText = `Hi ${greetName}! 💬 I am currently operating in Private DM mode for group chats to keep the group focused.\n\nPlease tap my profile or send me a private message (DM) — I'm active in DMs and ready to assist you with any program-related questions! 😊`;
           const mentionJids = targetDmJid ? [targetDmJid] : [senderParticipant];
+
+          // Extract topic preview from the tagged message (strip mentions and bot name for cleaner snippet)
+          const messagePreview = rawText.replace(/@\d+/g, '').replace(/podpal\s*bot/gi, '').replace(/podpal/gi, '').replace(/@bot/gi, '').replace(/!ask|!respond|!answer/gi, '').trim();
+          const topicSnippet = messagePreview.length > 80
+            ? messagePreview.substring(0, 80) + '...'
+            : messagePreview;
+
+          let nudgeText;
+          if (topicSnippet.length > 3) {
+            nudgeText = `Hi ${greetName}! 💬 I see your message about _"${topicSnippet}"_ — I'd love to help!\n\nPlease send me a private message (DM) with your question and I'll assist you right away. I'm active in DMs 24/7! 😊`;
+          } else {
+            nudgeText = `Hi ${greetName}! 💬 I'm currently operating in Private DM mode for group chats.\n\nPlease send me a private message (DM) — I'm ready to help with any program-related questions! 😊`;
+          }
+
           try {
             await sock.sendPresenceUpdate('paused', senderJid);
-            await sock.sendMessage(senderJid, { text: redirectText, mentions: mentionJids }, { quoted: msg });
+            await sock.sendMessage(senderJid, { text: nudgeText, mentions: mentionJids }, { quoted: msg });
           } catch (replyErr) {
             console.error('[Group DM Redirect Error]:', replyErr);
           }
           return;
         }
 
-        // 2. Reaction Engine for Admin & Participant Program-Related Messages
-        // Reacts when message is funny (😂), information (💡), or an important statement/point (⭐)
+        // 2. Context-Aware AI Emoji Reaction Engine for Program-Related Messages
+        // Uses lightweight Gemini call to pick the most relevant emoji for each message's content
         const isProgramRelated = programKeywordMatch || isFacilitator || mentionsAdmin || /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project|unipod|meti|program|programme|course|module|enrol|enrollment|chatbot|team|class|open hour|coaching|milestone|problem statement|bootcamp|addis|funding|timbuktoo|charles|workshop|onboarding|platform|sign up|sign in|blank page|error|email|notification|invite|enrolled|certificate|recap|today|tomorrow|next week|this week|admin|admins|facilitator|facilitators|lead|leads|coordinator|dashboard|page|screen|issue|victor|diane|gift|jeovaire|munira|charles|umukundwa|ntuli|bolton)/i.test(rawText);
 
         if (isProgramRelated) {
-          const isFunny = /(haha|lol|lmao|rofl|funny|hilarious|😂|🤣|😄|😅|😆)/i.test(rawText) ||
-                          /(funny|joke|laugh|hilar|crack me up)/i.test(rawText);
-
-          const isImportant = /(deadline|important|must|required|submission|due|submit|remember|urgent|critical|key point|milestone|action item|hackathon|certificate|score|final|don't forget|attention|notice|takeaway)/i.test(rawText);
-
-          const isInfo = /(link|recording|update|info|announcement|schedule|session|meeting|slides|portal|guideline|resource|here is|check out|note that|fyi|details|zoom|google meet|email|document|drive|pdf|https?:\/\/)/i.test(rawText);
-
-          let chosenReaction = null;
-          if (isFunny) {
-            chosenReaction = '😂';
-          } else if (isImportant) {
-            chosenReaction = '⭐';
-          } else if (isInfo) {
-            chosenReaction = '💡';
-          }
-
-          if (chosenReaction) {
-            try {
-              await sock.sendMessage(senderJid, { react: { text: chosenReaction, key: msg.key } });
-            } catch (reactErr) {
-              console.error('[Group Reaction Error]:', reactErr);
-            }
+          try {
+            const chosenReaction = await pickContextualEmoji(rawText);
+            await sock.sendMessage(senderJid, { react: { text: chosenReaction, key: msg.key } });
+          } catch (reactErr) {
+            console.error('[Group Reaction Error]:', reactErr);
           }
         }
 
