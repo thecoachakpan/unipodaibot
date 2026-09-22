@@ -70,6 +70,17 @@ export const DEFAULT_DOCUMENT_CATALOG = [
     description: 'Clean, filler-free verbatim speaker transcript of Wadhwani Problem Statement Coaching session.'
   },
   {
+    doc_key: 'wadhwani_module2_part1_summary',
+    title: 'Wadhwani Ignite Module 2 (Part 1) — Customer Identification, Segmentation & Initial Persona Creation',
+    file_name: 'Wadhwani_Module_2_Part1_Customer_Identification_Segmentation_Persona.md',
+    drive_file_id: null,
+    keywords: ['wadhwani module 2', 'customer identification', 'customer segmentation', 'initial persona', 'b2c b2b b2g', 'end user vs buyer', 'jobs to be done', 'jtbd', 'amina persona', 'satellite lnb case study', 'module 2 summary', 'module 2 part 1', 'customer persona'],
+    category: 'Wadhwani',
+    is_available: true,
+    description: 'Official summary of Wadhwani Module 2 (Part 1) covering B2C/B2B/B2G segmentation, End User vs Buyer rules, Satellite LNB case study, JTBD, and initial customer persona creation.'
+  },
+
+  {
     doc_key: 'wadhwani_template',
     title: 'Wadhwani Business Model & Venture Canvas Template',
     file_name: 'Wadhwani_Business_Model_Template.pdf',

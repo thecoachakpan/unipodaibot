@@ -12,6 +12,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { wadhwaniModule2Entries } from './importWadhwaniModule2Part1.js';
 dotenv.config();
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -28,7 +29,9 @@ const docDriveLink = 'https://drive.google.com/file/d/1XxGcCOvLSwylMJo_YqPmclr1y
 const wadhwaniRecordingUrl = "https://wadhwanifoundation-my.sharepoint.com/personal/charles_bolton_wadhwanifoundation_org/_layouts/15/stream.aspx?id=%2Fpersonal%2Fcharles%5Fbolton%5Fwadhwanifoundation%5Forg%2FDocuments%2FRecordings%2FUNDP%20UniPod%20AI%20Program%20%2D%20Wadhwani%20Platform%20Onboarding%20%28Welcome%20Session%29%2D20260910%5F150209%2DMeeting%20Recording%2Emp4&nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJTdHJlYW1XZWJBcHAiLCJyZWZlcnJhbFZpZXciOiJTaGFyZURpYWxvZy1MaW5rIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXcifX0&ga=1&referrer=StreamWebApp%2EWeb&referrerScenario=AddressBarCopied%2Eview%2E1d92374b%2Df89e%2D42e7%2D810a%2D7edb8c9a3b41";
 
 const cleanMasterEntries = [
+  ...wadhwaniModule2Entries,
   // --- GENERAL PROGRAMME FAQs & CONSTRAINTS ---
+
   {
     course_name: 'General',
     source_type: 'faq',
