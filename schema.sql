@@ -30,8 +30,13 @@ create table if not exists public.knowledge_entries (
   course_name text not null default 'General', -- 'MIT', 'Wadhwani', 'Ethiopia AI', 'General'
   content text not null,
   link_url text,
+  is_active boolean not null default true, -- false = superseded/archived by a newer !save entry
   created_at timestamptz default timezone('utc'::text, now())
 );
+
+-- Migration: Add is_active column to existing knowledge_entries (safe to re-run)
+ALTER TABLE public.knowledge_entries
+  ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
 
 -- 4. Scheduled Group Reminders Table (Admin Private DM Scheduler)
 create table if not exists public.scheduled_reminders (

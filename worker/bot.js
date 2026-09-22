@@ -707,6 +707,7 @@ async function loadKnowledgeBase() {
   const { data: entries } = await supabase
     .from('knowledge_entries')
     .select('course_name, content, link_url')
+    .eq('is_active', true)
     .order('created_at', { ascending: false });
 
   cachedKBEntries = entries || [];

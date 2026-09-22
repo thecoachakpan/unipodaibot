@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   Bot, Power, Shield, PlusCircle, HelpCircle, 
-  BookOpen, LogOut, CheckCircle, RefreshCw, Calendar, Trash2, Edit3, XCircle
+  BookOpen, LogOut, CheckCircle, RefreshCw, Calendar, Trash2, Edit3, XCircle, ArchiveRestore
 } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -122,6 +122,13 @@ export default function AdminDashboard() {
       cancelEdit();
     }
     fetchData();
+  };
+
+  const toggleKnowledgeActive = async (id: number, currentlyActive: boolean) => {
+    await supabase.from('knowledge_entries').update({ is_active: !currentlyActive }).eq('id', id);
+    setStatusMsg(currentlyActive ? '📦 Entry archived.' : '♻️ Entry reactivated!');
+    fetchData();
+    setTimeout(() => setStatusMsg(''), 2500);
   };
 
   const resolveQuery = async (id: number, question: string) => {
@@ -370,7 +377,9 @@ export default function AdminDashboard() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2.5">
                 <BookOpen className="w-5 h-5 text-blue-400" />
-                <h2 className="font-semibold text-sm">Active Knowledge Base Entries ({knowledgeEntries.length})</h2>
+                <h2 className="font-semibold text-sm">
+                  Knowledge Base Entries ({knowledgeEntries.filter((e: any) => e.is_active !== false).length} active{knowledgeEntries.filter((e: any) => e.is_active === false).length > 0 ? ` / ${knowledgeEntries.filter((e: any) => e.is_active === false).length} archived` : ''})
+                </h2>
               </div>
               <span className="text-xs text-slate-400">Click edit icon to load content into editor</span>
             </div>
@@ -382,21 +391,40 @@ export default function AdminDashboard() {
                   className={`p-4 rounded-xl border text-xs relative group transition-all ${
                     editingId === entry.id
                       ? 'bg-blue-500/10 border-blue-500/50 shadow-lg shadow-blue-500/5'
-                      : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
+                      : entry.is_active === false
+                        ? 'bg-slate-950/30 border-slate-800/40 opacity-50'
+                        : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">
-                      {entry.course_name}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">
+                        {entry.course_name}
+                      </span>
+                      {entry.is_active === false && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 font-semibold border border-amber-500/20">
+                          Archived
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => startEditKnowledge(entry)}
-                        className="text-slate-400 hover:text-blue-400 transition-colors p-1.5 rounded-lg hover:bg-slate-900"
-                        title="Edit Entry"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
+                      {entry.is_active === false ? (
+                        <button
+                          onClick={() => toggleKnowledgeActive(entry.id, false)}
+                          className="text-slate-400 hover:text-emerald-400 transition-colors p-1.5 rounded-lg hover:bg-slate-900"
+                          title="Reactivate Entry"
+                        >
+                          <ArchiveRestore className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => startEditKnowledge(entry)}
+                          className="text-slate-400 hover:text-blue-400 transition-colors p-1.5 rounded-lg hover:bg-slate-900"
+                          title="Edit Entry"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={() => deleteKnowledge(entry.id)}
                         className="text-slate-400 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-slate-900"
@@ -406,7 +434,7 @@ export default function AdminDashboard() {
                       </button>
                     </div>
                   </div>
-                  <p className="text-slate-300 whitespace-pre-wrap leading-relaxed max-h-32 overflow-hidden text-ellipsis">{entry.content}</p>
+                  <p className={`whitespace-pre-wrap leading-relaxed max-h-32 overflow-hidden text-ellipsis ${entry.is_active === false ? 'text-slate-500' : 'text-slate-300'}`}>{entry.content}</p>
                 </div>
               ))}
             </div>
