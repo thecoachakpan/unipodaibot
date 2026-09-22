@@ -80,3 +80,52 @@ alter publication supabase_realtime add table public.bot_config;
 alter publication supabase_realtime add table public.scheduled_reminders;
 alter publication supabase_realtime add table public.document_catalog;
 alter publication supabase_realtime add table public.knowledge_entries;
+
+-- ============================================================
+-- Row Level Security (RLS) Policies
+-- Authenticated users (admin dashboard) get full CRUD access.
+-- Service role key (worker/bot.js) bypasses RLS automatically.
+-- Anonymous/unauthenticated users get ZERO access.
+-- ============================================================
+
+-- 1. bot_config
+ALTER TABLE public.bot_config ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access on bot_config"
+  ON public.bot_config FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');
+
+-- 2. knowledge_entries
+ALTER TABLE public.knowledge_entries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access on knowledge_entries"
+  ON public.knowledge_entries FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');
+
+-- 3. unresolved_queries
+ALTER TABLE public.unresolved_queries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access on unresolved_queries"
+  ON public.unresolved_queries FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');
+
+-- 4. scheduled_reminders
+ALTER TABLE public.scheduled_reminders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access on scheduled_reminders"
+  ON public.scheduled_reminders FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');
+
+-- 5. document_catalog
+ALTER TABLE public.document_catalog ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access on document_catalog"
+  ON public.document_catalog FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');
+
+-- 6. whatsapp_auth (bot sessions — admin can view but service role manages)
+ALTER TABLE public.whatsapp_auth ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access on whatsapp_auth"
+  ON public.whatsapp_auth FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');

@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { 
   Bot, Power, Shield, PlusCircle, HelpCircle, 
@@ -14,6 +15,8 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholde
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function AdminDashboard() {
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
   const [config, setConfig] = useState({ is_active: true, chat_scope: 'both' });
   const [knowledgeEntries, setKnowledgeEntries] = useState<any[]>([]);
   const [unresolvedQueries, setUnresolvedQueries] = useState<any[]>([]);
@@ -25,15 +28,35 @@ export default function AdminDashboard() {
   const [statusMsg, setStatusMsg] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // Auth guard: verify session before rendering dashboard
   useEffect(() => {
-    fetchData();
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.replace('/login');
+        return;
+      }
+      setAuthChecked(true);
+      fetchData();
+    };
+    checkAuth();
+
+    // Listen for auth state changes (e.g. token expiry)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        router.replace('/login');
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       // 1. Config
-      const { data: cfg } = await supabase.from('bot_config').select('is_active, chat_scope').eq('id', 1).maybeSingle();
+      const { data: cfg, error: cfgErr } = await supabase.from('bot_config').select('is_active, chat_scope').eq('id', 1).maybeSingle();
+      if (cfgErr) console.error('[Dashboard] Config fetch error:', cfgErr.message);
       if (cfg) setConfig(cfg);
 
       // 2. Knowledge Entries
@@ -59,8 +82,15 @@ export default function AdminDashboard() {
     const updated = { ...config, ...fields };
     setConfig(updated);
     setStatusMsg('Synchronizing master controls...');
-    await supabase.from('bot_config').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', 1);
-    setStatusMsg('Master settings updated live via Realtime!');
+    const { error } = await supabase.from('bot_config').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', 1);
+    if (error) {
+      console.error('[Dashboard] Config update error:', error.message);
+      setStatusMsg(`⚠️ Update failed: ${error.message}`);
+      // Revert optimistic update
+      setConfig(config);
+    } else {
+      setStatusMsg('Master settings updated live via Realtime!');
+    }
     setTimeout(() => setStatusMsg(''), 2500);
   };
 
@@ -141,6 +171,17 @@ export default function AdminDashboard() {
     await supabase.auth.signOut();
     window.location.href = '/login';
   };
+  // Block render until auth is verified — prevents dashboard flash for unauthenticated users
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-2 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-xs text-slate-500">Verifying admin session...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 p-6 md:p-10 font-sans text-slate-100">
