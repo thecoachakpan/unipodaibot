@@ -36,7 +36,7 @@ const entries = [
     course_name: "MIT",
     source_type: "course_guideline",
     link_url: "https://mit-online.mit.edu/",
-    content: "### MIT Online Courses & Certification Rules\n- **Platform Link**: https://mit-online.mit.edu/\n- **Requirements**: Complete all 16 foundational modules with a pass score of >= 70%.\n- **Deadline**: Sunday, 18 October 2026.\n- **Certificate**: Verified MIT Certificate issued to enrolled primary applicant upon completion."
+    content: "### MIT Online Courses & Certification Rules\n- **Platform Link**: https://mit-online.mit.edu/\n- **Requirements**: Complete all 16 foundational modules with an overall pass score of >= 60% (Assignments = 80%, Knowledge Checks = 20%).\n- **Navigation Rule**: Sign in via email invitation and click **Dashboard** (top right) to access Universal AI modules.\n- **Deadline**: Sunday, 18 October 2026.\n- **Support Email**: uaisupport@mit.edu"
   },
   {
     course_name: "Wadhwani",

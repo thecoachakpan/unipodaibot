@@ -40,6 +40,26 @@ export const DEFAULT_DOCUMENT_CATALOG = [
     description: 'Wadhwani Ignite 14-week business model development template.'
   },
   {
+    doc_key: 'mit_onboarding_summary',
+    title: 'MIT Universal AI Welcome & Onboarding Overview',
+    file_name: 'MIT_Universal_AI_Onboarding_Summary.md',
+    drive_file_id: null,
+    keywords: ['mit onboarding', 'universal ai onboarding', 'mit welcome session', 'mit onboarding summary', 'mit grading rules', 'mit rules', 'mit orientation'],
+    category: 'MIT',
+    is_available: true,
+    description: 'Official overview, grading rules, platform access policies, and FAQs for the MIT Universal AI track.'
+  },
+  {
+    doc_key: 'mit_onboarding_transcript',
+    title: 'MIT Universal AI Welcome Session Cleaned Verbatim Transcript',
+    file_name: 'MIT_Universal_AI_Onboarding_Clean_Transcript.md',
+    drive_file_id: null,
+    keywords: ['mit transcript', 'mit onboarding transcript', 'mit welcome transcript', 'universal ai transcript', 'mit video transcript', 'mit recording text'],
+    category: 'MIT',
+    is_available: true,
+    description: 'Clean, filler-free verbatim speaker transcript of the MIT Universal AI onboarding call.'
+  },
+  {
     doc_key: 'mit_syllabus',
     title: 'MIT Universal AI Foundational Course Syllabus',
     file_name: 'MIT_Universal_AI_Syllabus.pdf',

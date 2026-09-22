@@ -45,11 +45,15 @@ Note: Always reference timezones: CAT (UTC+2), WAT (UTC+1), EAT (UTC+3), GMT.
   {
     course_name: 'MIT',
     source_type: 'course_guideline',
-    content: `### MIT Universal AI Track Guidelines
-- **Enrollment Limit**: Only 1 person per team (primary applicant email) receives official enrollment invite.
-- **Team Credentials**: Co-founders may share credentials to review coursework, but final certificate displays enrolled applicant name.
-- **Module Requirements**: Completing all 16 Universal AI Foundational Modules is mandatory by 18 October 2026 to remain eligible for subsequent program phases and grant funding. Vertical modules are optional.
-- **Accessing Course**: Access MUST be made through personalized invitation link received via email; log in and navigate directly to the Dashboard tab (not Home).`
+    link_url: 'mailto:uaisupport@mit.edu',
+    content: `### MIT Universal AI Track Guidelines & Onboarding Rules
+- **Curriculum Scope**: 16 mandatory Foundational AI modules (Python, ML, Deep Learning, GenAI, Prescriptive AI) + optional industry verticals.
+- **Completion Deadline**: Sunday, 18 October 2026 (completion unlocks Ethiopian AI Institute phase, grant funding, and Addis Ababa bootcamp).
+- **Enrollment & Licensing Limit**: Exactly 1 licence per team ($900 USD fee 100% waived). Only primary applicant email receives official invitation and certificate naming.
+- **Team Workload Sharing**: Co-founders may share login credentials internally to divide learning tasks.
+- **Grading Policy**: Minimum 60% total score per module to earn certificate (Assignments = 80%, Knowledge Checks = 20%). Only 1 final attempt allowed per module assignment.
+- **Accessing Course**: Sign in via email invitation link and click **Dashboard** (top right) to see Universal AI modules. Do not browse public catalog under "Home".
+- **Technical Support Email**: uaisupport@mit.edu`
   },
   {
     course_name: 'Wadhwani',
