@@ -2,7 +2,7 @@
 
 **PodPal BOT** is an automated, production-grade WhatsApp AI Assistant and Management Dashboard designed for the UniPods METI AI Innovation Cohort (240+ startup founders, facilitators, and program leads across MIT Universal AI, Wadhwani Ignite, and Ethiopia AI Institute tracks).
 
-It operates with **zero cloud storage costs**, supports **multilingual voice notes** (English, French, Arabic), includes **Per-Turn Dynamic Language Detection & Mid-Chat Switching**, **Engaging Humanized DM Welcome Persona**, **Multi-Participant Summary Queue & Varied Receipts**, **Missed Meeting Executive Summary & Action Points Dispatch**, **Smart Group-to-DM Response Routing**, **Message Revocation (`!delete`)**, **Admin DM Private Scheduling**, **Automatic Link Extraction (`!links`)**, **Expired Event Guards**, **Proactive Screenshot Requests & Computer Vision Diagnostics**, **Meta anti-ban guardrails**, **group quote-replies**, auto-uploads cohort PDFs to **Google Drive**, and provides a **Supabase Auth protected admin portal**.
+It operates with **zero cloud storage costs**, supports **multilingual voice notes** (English, French, Arabic), includes **Per-Turn Dynamic Language Detection & Mid-Chat Switching**, **Engaging Humanized DM Welcome Persona**, **Multi-Participant Summary Queue & Varied Receipts**, **Missed Meeting Executive Summary & Action Points Dispatch**, **Supabase-Persisted Smart Group-to-DM Response Routing**, **Selective Drive URL Privacy Shield**, **Message Revocation (`!delete`)**, **Admin DM Private Scheduling**, **Automatic Link Extraction (`!links`)**, **Expired Event Guards**, **Proactive Screenshot Requests & Computer Vision Diagnostics**, **Meta anti-ban guardrails**, **group quote-replies**, auto-uploads cohort PDFs to **Google Drive**, and provides a **Supabase Auth protected admin portal**.
 
 ---
 
@@ -13,14 +13,17 @@ It operates with **zero cloud storage costs**, supports **multilingual voice not
    - Powered by a **Gemini AI Fallback Engine**: Primary Model (**`gemini-3.1-flash-lite`**) ➔ Fallback Model (**`gemini-3.5-flash-lite`**).
    - **WhatsApp LID Identity Guard & Clean Phone Tagging**: Filters out WhatsApp Linked Identity (`@lid`) numbers (>15 digits) when tagging users or sending receipts, restricting mentions strictly to clean E.164 phone numbers (<=15 digits).
    - **PushName Facilitator / Admin Recognition Engine**: Automatically resolves admin rights and phone JIDs via `PushName` matching against `FACILITATOR_MAP` (Victor Akpan, Diane, Gift, Jeovaire, Munira, Charles Bolton) when WhatsApp sends unmapped `@lid` identities.
-   - **Guaranteed Native Document & PDF Delivery Pipeline**: Downloads file buffers from Google Drive and uploads native attachments (`.pdf`, etc.) directly to WhatsApp. Validates active DM sessions (`hasActiveDMSession`) and automatically falls back to group chat delivery if no active DM thread exists or if requested in group chat with "send here/in group" intent. Never outputs raw Google Drive links or false DM delivery claims.
+   - **Guaranteed Native Document & PDF Delivery Pipeline**: Downloads file buffers from Google Drive and uploads native attachments (`.pdf`, etc.) directly to WhatsApp. Validates DM sessions via **Supabase-persisted** `hasActiveDMSession()` (survives Render spin-downs) and delivers to current chat context by default. Only attempts cross-context DM delivery when explicitly requested ("send privately", "in my DM"). Nudges users to send a DM first if no active session exists. Never outputs raw internal Google Drive storage links.
+   - **Selective Drive URL Privacy Shield**: Internal document storage Drive URLs (`### Document:` KB entries) are stripped from Gemini's context and AI responses. Meeting recording links and other shareable Drive file URLs are preserved and shared normally.
    - **Per-Turn Dynamic Multilingual Detection & Mid-Chat Language Switcher**: Detects the language of every prompt (English, French, Arabic, Amharic, etc.) on each turn. If a user switches from English to French mid-conversation, PodPal BOT seamlessly switches to French!
    - **Engaging DM Welcome Message**: Greets new DM users with a warm, encouraging, humanized overview of capabilities in their language while enforcing a firm program focus shield against off-topic queries.
    - **Multi-Participant Summary Dispatch Queue & Varied Group Receipts**: When multiple participants reply *"Yes, send to me too"*, PodPal BOT queues them, dispatches summaries sequentially with a 2.5s jitter delay, and posts natural varied group receipts (*"I have sent it to your DM!"*, *"Check your DM shortly"*, *"You'll get it right away!"*).
    - **Missed Meeting Executive Summary & Action Points Dispatcher**: When founders ask about concluded sessions, PodPal BOT proactively offers to send executive summaries and key action items, and answers follow-up questions about what was discussed.
-   - **Smart Group-to-DM Response Routing**:
+   - **Supabase-Persisted Smart Group-to-DM Response Routing**:
+     - Defaults to current chat location (DM → DM, Group → Group).
      - General cohort questions -> Answered directly in group.
-     - Participant-specific queries -> If user previously messaged bot: sends detailed response to DM & posts *"Check your DM, I've responded to your message"* in group. If user has never messaged bot: posts *"Send me 'Hi' in a private chat and I will respond to your question"* in group (strictly complying with Meta anti-ban rules).
+     - Participant-specific queries or explicit private requests -> If user has an active DM session (checked via Supabase `dm_sessions` table, persists across restarts): sends detailed response to DM & posts *"Check your DM, I've responded to your message"* in group. If no active session: posts *"Hi @user, I can send messages to you privately. Kindly send me 'Hi' in a private DM so I can assist you with program-related questions. 😊"* in group.
+     - DM sessions are recorded under phone-based JIDs (`targetDmJid`) for reliable cross-context lookup, even when DM `senderJid` is a `@lid` JID.
    - **Message Revocation Engine (`!delete` / `!revoke`)**: Admins can reply to any bot message with `!delete` to revoke it instantly for everyone.
    - **Admin Private DM Scheduling Engine**: Admins (Victor Akpan, Diane, Gift, Jeovaire, Munira, Charles Bolton) can chat with PodPal BOT in private DMs to schedule group meeting reminders (e.g. 30m, 5m before calls) or deadline warnings (12h, 1h before submission).
    - **Automatic Link Extraction & Indexing (`!links`)**: Intercepts URLs shared by admins and categorizes them so founders can retrieve links anytime.
@@ -37,7 +40,7 @@ It operates with **zero cloud storage costs**, supports **multilingual voice not
 2. **Next.js Admin Portal with Supabase Auth (Vercel - $0)**
    - **Authentication Guard**: Protected login using Supabase Auth.
    - **Remote Master Kill Switch**: Enable or suspend bot activity instantly across all channels.
-   - **Operational Scope Toggle**: Switch between *Private DMs Only* and *DMs & Groups (Mention & Quote-Reply)*.
+   - **Operational Scope Toggle**: Switch between *Private DMs Only*, *DMs & Groups (Mention & Quote-Reply)*, and *Group Deactivated (Silent Observation)*.
    - **Scheduled Reminders Monitor**: View and manage upcoming group reminders.
    - **Knowledge Publisher**: Publish Q&A pairs, meeting transcripts, or course rules categorized by track.
    - **Log-on-Miss Synthesizer**: Review questions the bot couldn't resolve from the knowledge base and update answers with one click.

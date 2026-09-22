@@ -23,6 +23,7 @@ An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** desig
 │  - knowledge_entries (Dynamic context for Gemini & Links)   │
 │  - scheduled_reminders (Admin scheduled group reminders)    │
 │  - unresolved_queries (Logs questions the bot cannot answer)│
+│  - dm_sessions (Supabase-persisted DM session tracker)      │
 │  - auth.users (Supabase Admin Auth Users)                   │
 └──────────────────────────────▲──────────────────────────────┘
                                │ Subscribes & Schedules (Zero-DB-polling)
@@ -45,7 +46,8 @@ An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** desig
 │  - Anti-Ban safeguards (Burst rate-limiter, jitter)         │
 │  - WhatsApp LID Guard & Clean E.164 Phone Tagging           │
 │  - PushName Facilitator / Admin Recognition Fallback        │
-│  - Native Document Buffer Delivery & DM Session Validation   │
+│  - Native Document Buffer Delivery & Supabase DM Sessions   │
+│  - Selective Drive URL Privacy Shield                       │
 │  - Google Drive & Link Auto-Ingestion Pipeline              │
 │  - Gemini AI Fallback Pipeline:                             │
 │    1. Primary: Gemini API (gemini-3.1-flash-lite)          │
@@ -156,6 +158,13 @@ create table if not exists unresolved_queries (
 -- Enable Realtime publication
 alter publication supabase_realtime add table bot_config;
 alter publication supabase_realtime add table scheduled_reminders;
+
+-- 6. DM Sessions Table (Persistent DM Session Tracker for Group-to-DM Routing)
+-- Survives Render free-tier spin-downs and process restarts.
+create table if not exists dm_sessions (
+  jid text primary key,
+  last_dm_at timestamptz not null default timezone('utc'::text, now())
+);
 ```
 
 ---
@@ -209,11 +218,13 @@ Comment puis-je vous aider aujourd'hui ? 😊
 - Commands: `!remind 30m,5m "Wadhwani Q&A starting soon! Join: https://..."` or `!announce "New submission rules published"`.
 - 1-minute ticker checks `scheduled_reminders` and broadcasts to group chats at 30m/5m before meetings or 12h/1h before deadlines.
 
-### 6.2 Smart Group-to-DM Response Routing
+### 6.2 Supabase-Persisted Smart Group-to-DM Response Routing
+- Defaults to current chat context (DM → DM, Group → Group).
 - General cohort queries -> Answered directly in group chat.
-- Participant-specific queries:
-  - User has prior DM session -> Detailed answer sent to DM + group note: *"Hi @User, check your DM! I've responded to your message."*
-  - User has NO prior DM session -> Group note: *"Hi @User, send me 'Hi' in a private DM and I'll send your tailored steps!"*.
+- Participant-specific queries or explicit private delivery requests:
+  - User has active DM session (checked via Supabase `dm_sessions` table, survives Render spin-downs) -> Detailed answer sent to DM + group note: *"Hi @User, check your DM! I've responded to your message."*
+  - User has NO active DM session -> Group note: *"Hi @User, I can send messages to you privately. Kindly send me 'Hi' in a private DM so I can assist you with program-related questions. 😊"*
+- DM sessions are recorded under **phone-based JIDs** (`targetDmJid`, e.g. `2349093696284@s.whatsapp.net`) for reliable cross-context group→DM lookup, even when the DM `senderJid` is a `@lid` JID. This is critical because WhatsApp may send `@lid` identities in DM contexts but resolves to phone-based JIDs in group contexts.
 
 ### 6.3 Message Revocation Engine (`!delete` / `!revoke`)
 - Admins replying to any bot message with `!delete` or `!revoke` trigger instant message deletion for everyone via `sock.sendMessage(jid, { delete: messageKey })`.
@@ -238,8 +249,10 @@ Comment puis-je vous aider aujourd'hui ? 😊
 - **PushName Facilitator Match**: When WhatsApp sends an unmapped `@lid` JID, matches `validPushName` against `FACILITATOR_MAP` (Victor Akpan, Diane, Gift, Jeovaire, Munira, Charles Bolton). If matched, sets `isFacilitator = true` and recovers the correct phone JID from the facilitator map, guaranteeing admin recognition never fails.
 
 ### 6.10 Guaranteed Document & Native File Delivery Protocol
-- **Native Document Attachments Only**: **NEVER** share, output, or send raw Google Drive links or web URLs when a file or document is requested from the Drive folder. **ALWAYS** download the file buffer and upload the actual native document attachment (`.pdf`, etc.) directly to WhatsApp.
-- **DM Delivery Session Guard**: Validates `hasActiveDMSession(senderJid)` **AND** `cleanSenderNum.length <= 15` before attempting DM document dispatch.
+- **Native Document Attachments Only**: **NEVER** share, output, or send raw internal Google Drive storage links or web URLs when a file or document is requested from the Drive folder. **ALWAYS** download the file buffer and upload the actual native document attachment (`.pdf`, etc.) directly to WhatsApp.
+- **Selective Drive URL Privacy Shield**: Internal document storage Drive URLs (from `### Document:` KB entries) are stripped from Gemini's context and AI responses. Meeting recording links and other shareable Drive file URLs stored in KB entries are **preserved** and shared normally.
+- **Default Delivery Location**: Deliver to the current chat context by default (DM → DM, Group → Group). Only attempt cross-context DM delivery when the user **explicitly** requests private delivery (e.g. "send privately", "in my DM").
+- **Supabase-Persisted DM Session Guard**: Validates `hasActiveDMSession(targetDmJid)` via the `dm_sessions` Supabase table (persists across Render spin-downs) **AND** `cleanSenderNum.length <= 15` before attempting DM document dispatch.
 - **Group Upload Fallback**: If the user requested the document in a group chat with explicit group intent ("send here", "upload here", "in group") OR if the user does NOT have an active DM session OR if DM dispatch fails: automatically uploads the native document attachment directly into the group chat to guarantee document delivery NEVER fails.
 - **Strict Delivery Confirmation**: **NEVER** output text confirming or claiming that a file was sent to a private DM if no file attachment was physically dispatched and delivered.
 
@@ -248,7 +261,7 @@ Comment puis-je vous aider aujourd'hui ? 😊
 ## 7. Next.js Admin Dashboard with Supabase Auth (app/admin/page.tsx)
 - Protected by Supabase Auth (`app/login/page.tsx`).
 - Remote Master Kill Switch (Active / Offline).
-- Operational Scope Selector (Private Only vs. DMs & Groups).
+- Operational Scope Selector: *Private Only* / *DMs & Groups* / *Group Deactivated (Silent Observation)*.
 - Scheduled Reminders Monitor & Manual Trigger.
 - FAQ Markdown Editor & AI Ingestion Trigger.
 - Unanswered Question Log Synthesizer ("Log on Miss").

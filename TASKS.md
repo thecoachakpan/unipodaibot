@@ -23,6 +23,8 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
   - Implement 3-turn (6-message) sliding window conversation memory.
   - Add 30-minute inactivity TTL and 10-minute periodic sweeper.
   - Track DM session existence for Smart Group-to-DM routing.
+  - **Supabase-persisted DM sessions** (`dm_sessions` table) surviving Render free-tier spin-downs via `recordDMSession()` and async `hasActiveDMSession()`.
+  - DM sessions recorded under **phone-based JIDs** (`targetDmJid`) for reliable cross-context lookup, even when DM `senderJid` is a `@lid` JID.
 - [x] **2.2 Google Drive & Link Ingestion Module (`worker/googleDrive.js`)**
   - Setup Google Service Account JWT authentication.
   - Build stream uploader for decrypted WhatsApp document buffers (<20MB).
@@ -57,7 +59,9 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
 - [x] **2.6 WhatsApp LID Resolution, PushName Admin Fallback & Native Document Delivery (`worker/bot.js`)**
   - Implement **LID Phone Guard**: Discard `@lid` numbers (>15 digits) in user identification to prevent invalid mention tagging (`@+120363430230054304`).
   - Implement **PushName Facilitator Match**: Match `validPushName` against `FACILITATOR_MAP` (Victor Akpan, Diane, Gift, Jeovaire, Munira, Charles Bolton) when WhatsApp sends unmapped `@lid` JIDs, recovering admin rights and phone JIDs seamlessly.
-  - Implement **Guaranteed Native Document Attachment Pipeline**: Download Google Drive file buffers directly and upload native `.pdf` attachments. Validate `hasActiveDMSession(senderJid)` and automatically fall back to group chat delivery if no DM thread exists, if DM fails, or if explicitly requested in group. Never output raw Drive URLs.
+  - Implement **Guaranteed Native Document Attachment Pipeline**: Download Google Drive file buffers directly and upload native `.pdf` attachments. Default to current chat context (DM→DM, Group→Group). Only attempt cross-context DM delivery when explicitly requested. Validate `hasActiveDMSession()` via Supabase persistence and nudge users to send a DM first if no active session.
+  - Implement **Selective Drive URL Privacy Shield**: Strip internal document storage Drive URLs (`### Document:` KB entries) from Gemini context and AI responses. Preserve meeting recording links and other shareable Drive file URLs.
+  - Implement **Three Operational Scope Modes**: `both` (DMs & Groups), `private_only` (DMs only), `group_deactivated` (DMs active, groups silently observed).
 
 ---
 
@@ -68,7 +72,7 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
 - [x] **3.2 Admin Portal Interface (`app/admin/page.tsx`)**
   - Modern glassmorphic dark/light UI using Tailwind CSS & Lucide icons.
   - Master Kill Switch toggle (ACTIVE / OFFLINE).
-  - Operational Scope selector (Private Only vs DMs & Groups).
+  - Operational Scope selector (Private Only vs DMs & Groups vs Group Deactivated).
   - Scheduled Reminders monitor & manual broadcast trigger.
   - FAQ Publisher & Knowledge Base browser.
   - Log-on-Miss Unresolved Queries viewer with 1-click resolution.
