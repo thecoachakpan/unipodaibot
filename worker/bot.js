@@ -661,11 +661,23 @@ function findMissedUnrespondedQuestion(chatJid, participantJid) {
   return null;
 }
 
+// Map tracking last bot sent message per chat (chatJid -> { key, timestamp }) for unquoted !delete requests
+const lastBotSentMessages = new Map();
+
+function trackSentBotMessage(chatJid, sentMsg) {
+  if (chatJid && sentMsg?.key) {
+    lastBotSentMessages.set(chatJid, {
+      key: sentMsg.key,
+      timestamp: Date.now()
+    });
+  }
+}
+
 let cachedSystemInstruction = null;
 let cachedSystemInstructionTimestamp = 0;
 const SYSTEM_INSTRUCTION_TTL_MS = 10 * 60 * 1000; // 10-minute cache TTL
 
-export function invalidateSystemInstructionCache() {
+function invalidateSystemInstructionCache() {
   cachedSystemInstruction = null;
   cachedSystemInstructionTimestamp = 0;
   console.log('🔄 [System Instruction Cache]: Cache invalidated.');
@@ -1008,19 +1020,60 @@ async function startBot() {
     const rawText = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || msg.message.documentMessage?.caption || '';
     const cleanLower = rawText.trim().toLowerCase();
 
-    if (isFacilitator && (cleanLower === '!delete' || cleanLower === '!revoke') && quotedMsgKey) {
-      try {
-        await sock.sendMessage(senderJid, {
-          delete: {
-            remoteJid: senderJid,
-            fromMe: true,
-            id: quotedMsgKey
+    if (isFacilitator && (cleanLower === '!delete' || cleanLower === '!revoke' || cleanLower.startsWith('!delete') || cleanLower.startsWith('!revoke'))) {
+      let targetKey = quotedMsgKey;
+      let targetChat = contextInfo?.remoteJid || senderJid;
+
+      // Unquoted Method: If no message is quoted, find the last bot message sent to this chat within 15 minutes
+      if (!targetKey) {
+        const lastSent = lastBotSentMessages.get(senderJid);
+        const now = Date.now();
+        if (lastSent && (now - lastSent.timestamp <= 15 * 60 * 1000)) {
+          targetKey = lastSent.key.id;
+          targetChat = lastSent.key.remoteJid || senderJid;
+        }
+      }
+
+      if (targetKey) {
+        try {
+          // 1. Delete the bot's target message
+          await sock.sendMessage(targetChat, {
+            delete: {
+              remoteJid: targetChat,
+              fromMe: true,
+              id: targetKey
+            }
+          });
+          lastBotSentMessages.delete(senderJid);
+          console.log(`[Message Revoked] Deleted bot message ${targetKey} in ${targetChat} by facilitator request.`);
+
+          // 2. If executed inside group chat, attempt to auto-delete the admin's !delete command message as well
+          if (isGroup) {
+            try {
+              await sock.sendMessage(senderJid, {
+                delete: {
+                  remoteJid: senderJid,
+                  fromMe: false,
+                  id: msg.key.id,
+                  participant: msg.key.participant || senderParticipant
+                }
+              });
+            } catch (_) {}
+          } else {
+            // If executed in Private DM, send private confirmation receipt to admin
+            await sock.sendMessage(senderJid, { text: '🗑️ *Bot message successfully deleted.*' }, { quoted: msg });
           }
-        });
-        console.log(`[Message Revoked] Deleted bot message ${quotedMsgKey} by facilitator request.`);
+          return;
+        } catch (err) {
+          console.error('[Message Revocation Error]:', err);
+        }
+      } else {
+        // No quoted message AND no message sent within 15 minutes
+        await sock.sendPresenceUpdate('paused', senderJid);
+        await sock.sendMessage(senderJid, {
+          text: '⚠️ *No bot message found in this chat sent within the last 15 minutes.* (Alternatively, quote-reply directly to any bot message with `!delete`).'
+        }, { quoted: msg });
         return;
-      } catch (err) {
-        console.error('[Message Revocation Error]:', err);
       }
     }
 
@@ -1960,7 +2013,8 @@ Respond with ONLY the JSON object, nothing else.`;
       }
 
       await sock.sendPresenceUpdate('paused', senderJid);
-      await sock.sendMessage(senderJid, { text: replyText, mentions: isGroup ? mentionsList : [] }, { quoted: msg });
+      const sentMsg = await sock.sendMessage(senderJid, { text: replyText, mentions: isGroup ? mentionsList : [] }, { quoted: msg });
+      trackSentBotMessage(senderJid, sentMsg);
 
     } catch (err) {
       console.error('[Inference Error - Silent Retry Exceeded]:', err);
