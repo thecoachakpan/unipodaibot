@@ -1287,6 +1287,29 @@ async function startBot() {
         await sock.sendMessage(senderJid, { react: { text: chosenEmoji, key: msg.key } });
       } catch (reactErr) {}
 
+      if (isGroup && currentConfig.chat_scope === 'group_deactivated') {
+        return; // In group_deactivated mode, react with emoji only and stay text-silent
+      }
+
+      const isFrench = cleanLower.includes('merci');
+
+      const replyPhrasesEn = [
+        "😊 You're very welcome! Always happy to help with your METI AI journey!",
+        "🙏 Glad that helped! Let me know if you need anything else.",
+        "💙 You're welcome! Keep building great things!",
+        "👍 Happy to assist! Wishing you a fantastic cohort week!"
+      ];
+      const replyPhrasesFr = [
+        "😊 De rien ! Toujours ravi de vous aider dans votre parcours METI AI !",
+        "🙏 Heureux que cela vous ait aidé ! N'hésitez pas si vous avez d'autres questions.",
+        "💙 Avec plaisir ! Continuez votre excellent travail !",
+        "👍 Ravi de vous aider ! Excellente semaine de formation !"
+      ];
+
+      const chosenPhrase = isFrench
+        ? replyPhrasesFr[Math.floor(Math.random() * replyPhrasesFr.length)]
+        : replyPhrasesEn[Math.floor(Math.random() * replyPhrasesEn.length)];
+
       try {
         // 2. High-Visibility Quote Reply
         await sock.sendMessage(senderJid, { text: chosenPhrase }, { quoted: msg });
@@ -1326,7 +1349,7 @@ async function startBot() {
     const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('!respond') || cleanLower.includes('!answer') || cleanLower.includes('podpal') || cleanLower.includes('bot');
 
     // Standalone Tag Handler: If bot is tagged without prompt text, scan recent unresponded messages
-    if (isTagged && cleanPrompt.length === 0) {
+    if (isTagged && cleanPrompt.length === 0 && !(isGroup && currentConfig.chat_scope === 'group_deactivated')) {
       const missedQ = findMissedUnrespondedQuestion(senderJid, senderParticipant);
       if (missedQ) {
         cleanPrompt = missedQ;
@@ -1362,11 +1385,6 @@ async function startBot() {
     const isQuestionOrInquiry = programKeywordMatch && looksLikeQuestion && !isDeclarativeStatement;
 
     // Group Chat Scope Filtering
-    // The bot only responds in groups to:
-    // 1. Mentions or tags (@bot, !ask, podpal, bot, or native @mention)
-    // 2. Direct replies to any of the bot's responses (isQuotedBotReply)
-    // 3. Mentions of a facilitator/admin IN AN ACTUAL QUESTION (mentionsAdmin && isQuestionOrInquiry)
-    // 4. Fresh unquoted program-related questions (isQuestionOrInquiry when NOT replying to another participant)
     const isQuotedPeerReply = isGroup && !isQuotedBotReply && !!contextInfo?.quotedMessage;
     const isQuotedAnyReply = !!contextInfo?.quotedMessage;
     const isQuestionMentioningAdmin = mentionsAdmin && isQuestionOrInquiry;
@@ -1375,13 +1393,56 @@ async function startBot() {
     if (isGroup) {
       if (currentConfig.chat_scope === 'private_only') return;
 
-      // Group chat processing triggers:
-      // 1. Tagged or mentioned (@bot, !ask, podpal, bot, or native @mention)
-      // 2. Direct replies to bot messages
-      // 3. Questions mentioning facilitators/admins
-      // 4. Fresh unquoted program-related questions (or quote replies forming program inquiries)
-      // 5. Multimodal messages (images, audio/voice notes)
-      // 6. Explicit commands (!poll, !event, !post) or translation/DM/reminder requests
+      if (currentConfig.chat_scope === 'group_deactivated') {
+        // 1. Participant/Admin mentions or tags PodPal BOT in group: Quote-reply directing them to Private DM
+        if (isTagged || isQuotedBotReply) {
+          const greetName = validPushName ? validPushName : `@${cleanSenderNum || senderParticipant.split('@')[0]}`;
+          const redirectText = `Hi ${greetName}! 💬 I am currently operating in Private DM mode for group chats to keep the group focused.\n\nPlease tap my profile or send me a private message (DM) — I'm active in DMs and ready to assist you with any program-related questions! 😊`;
+          const mentionJids = targetDmJid ? [targetDmJid] : [senderParticipant];
+          try {
+            await sock.sendPresenceUpdate('paused', senderJid);
+            await sock.sendMessage(senderJid, { text: redirectText, mentions: mentionJids }, { quoted: msg });
+          } catch (replyErr) {
+            console.error('[Group DM Redirect Error]:', replyErr);
+          }
+          return;
+        }
+
+        // 2. Reaction Engine for Admin & Participant Program-Related Messages
+        // Reacts when message is funny (😂), information (💡), or an important statement/point (⭐)
+        const isProgramRelated = programKeywordMatch || isFacilitator || mentionsAdmin || /(mit|wadhwani|ethiopia|cohort|track|recording|link|schedule|deadline|meeting|call|session|portal|submission|assignment|hackathon|credential|account|score|certificate|help|support|login|register|resource|video|demo|project|unipod|meti|program|programme|course|module|enrol|enrollment|chatbot|team|class|open hour|coaching|milestone|problem statement|bootcamp|addis|funding|timbuktoo|charles|workshop|onboarding|platform|sign up|sign in|blank page|error|email|notification|invite|enrolled|certificate|recap|today|tomorrow|next week|this week|admin|admins|facilitator|facilitators|lead|leads|coordinator|dashboard|page|screen|issue|victor|diane|gift|jeovaire|munira|charles|umukundwa|ntuli|bolton)/i.test(rawText);
+
+        if (isProgramRelated) {
+          const isFunny = /(haha|lol|lmao|rofl|funny|hilarious|😂|🤣|😄|😅|😆)/i.test(rawText) ||
+                          /(funny|joke|laugh|hilar|crack me up)/i.test(rawText);
+
+          const isImportant = /(deadline|important|must|required|submission|due|submit|remember|urgent|critical|key point|milestone|action item|hackathon|certificate|score|final|don't forget|attention|notice|takeaway)/i.test(rawText);
+
+          const isInfo = /(link|recording|update|info|announcement|schedule|session|meeting|slides|portal|guideline|resource|here is|check out|note that|fyi|details|zoom|google meet|email|document|drive|pdf|https?:\/\/)/i.test(rawText);
+
+          let chosenReaction = null;
+          if (isFunny) {
+            chosenReaction = '😂';
+          } else if (isImportant) {
+            chosenReaction = '⭐';
+          } else if (isInfo) {
+            chosenReaction = '💡';
+          }
+
+          if (chosenReaction) {
+            try {
+              await sock.sendMessage(senderJid, { react: { text: chosenReaction, key: msg.key } });
+            } catch (reactErr) {
+              console.error('[Group Reaction Error]:', reactErr);
+            }
+          }
+        }
+
+        // 3. Stays silent without chatting in group chat for all other messages
+        return;
+      }
+
+      // Group chat processing triggers for 'both' mode:
       const isMultimodalMessage = isImage || isAudio;
       const isFreshQuestion = isQuestionOrInquiry;
       const shouldRespondInGroup = isTagged || isQuestionMentioningAdmin || isQuotedBotReply || isFreshQuestion || isMultimodalMessage || isCommandOrAction;

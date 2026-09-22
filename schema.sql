@@ -7,9 +7,13 @@
 create table if not exists public.bot_config (
   id int primary key default 1,
   is_active boolean not null default true,
-  chat_scope text not null default 'both' check (chat_scope in ('private_only', 'both')),
+  chat_scope text not null default 'both' check (chat_scope in ('private_only', 'both', 'group_deactivated')),
   updated_at timestamptz default timezone('utc'::text, now())
 );
+
+-- Ensure constraint is updated for existing table deployments
+alter table public.bot_config drop constraint if exists bot_config_chat_scope_check;
+alter table public.bot_config add constraint bot_config_chat_scope_check check (chat_scope in ('private_only', 'both', 'group_deactivated'));
 
 -- Seed initial master configuration row
 insert into public.bot_config (id, is_active, chat_scope)

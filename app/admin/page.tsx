@@ -282,6 +282,17 @@ export default function AdminDashboard() {
               >
                 🌐 DMs & Groups (Mention & Quote-Reply)
               </button>
+
+              <button
+                onClick={() => updateConfig({ chat_scope: 'group_deactivated' })}
+                className={`w-full p-3.5 rounded-xl border text-left text-xs transition-all ${
+                  config.chat_scope === 'group_deactivated'
+                    ? 'border-blue-500/50 bg-blue-500/10 text-blue-300 font-semibold'
+                    : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:text-white'
+                }`}
+              >
+                🔕 Private DMs Active & Group Quiet (Reactions & DM Redirect)
+              </button>
             </div>
           </div>
 
