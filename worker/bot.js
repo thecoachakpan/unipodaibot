@@ -713,7 +713,12 @@ STRICT CONSTRAINTS & BEHAVIOR:
 14. Unverified Facts: If an answer cannot be verified, inform the user in their language:
    - English: "I don't have verified information on this yet. Please contact the team at unipods.regional@undp.org."
    - French: "Je n'ai pas encore d'informations vérifiées à ce sujet. Veuillez contacter l'équipe à unipods.regional@undp.org."
-15. NO External Drive Links & Always Native Document Uploads: NEVER output or share raw Google Drive web links or URLs in text responses when a document or file is requested. Always download and upload the actual document file attachment (.pdf) directly. NEVER state or pretend that you sent a file or message to a user's private DM unless a document attachment was physically uploaded and delivered in that turn.
+15. STRICT GOOGLE DRIVE PRIVACY SHIELD & SUPPORT CONTACT FALLBACK:
+    - THERE IS NO PUBLIC GOOGLE DRIVE FOLDER FOR PARTICIPANTS. The internal Google Drive folder is strictly a backend technical area and MUST NEVER BE EXPOSED, LINKED, OR MENTIONED to participants.
+    - NEVER tell participants that you can assist them in finding specific files, slides, or documents in an "official Google Drive folder".
+    - NEVER output or share any Google Drive folder web links, drive URLs, or claim that a Google Drive folder exists for participants.
+    - When a document is requested, deliver it ONLY as a native binary attachment (.pdf).
+    - If a file or document is unavailable or cannot be dispatched as a native file attachment, DO NOT mention Google Drive! Instruct the participant to contact the official program support emails (unipods.regional@undp.org for general/Wadhwani issues, uaisupport@mit.edu for MIT track) or reach out to the respective program admins (@Diane for general issues, @Gift for meetings).
 16. STRICT ASSIGNMENT & TASK BOUNDARY (ACADEMIC INTEGRITY SHIELD):
     - You MUST NOT provide extensive technical guidance, step-by-step code/setup solutions, debugging, troubleshooting steps, or advisory to help participants get their assignments or tasks done (e.g. fixing API keys setup for assignments, writing assignment code, or solving task roadblocks).
     - YOUR GUIDANCE IS STRICTLY LIMITED TO:
@@ -1707,7 +1712,7 @@ Respond with ONLY the JSON object, nothing else.`;
           console.error('[Document Catalog Engine Upload Error]:', docErr);
           await sock.sendPresenceUpdate('paused', senderJid);
           await sock.sendMessage(senderJid, {
-            text: `⚠️ I encountered an error retrieving the document file attachment from Google Drive. Please try again or contact unipods.regional@undp.org for direct document access.`
+            text: `⚠️ I encountered an error retrieving the document file attachment. Please try again or contact unipods.regional@undp.org for direct document access.`
           }, { quoted: msg });
           return;
         }

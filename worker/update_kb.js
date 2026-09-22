@@ -27,12 +27,6 @@ const entries = [
     content: "### Official Microsoft Teams Meeting Link for Daily Live Sessions & Webinars\n- **Teams Meeting Link**: https://teams.microsoft.com/l/meetup-join/19%3ameeting_MmNmZTM5MGEtYzk0OC00NzA3LWJmOGEtZDUwMWE2YjMzZDBh%40thread.v2/0?context=%7b%22Tid%22%3a%22ca00be73-61fb-4299-8e41-db10438ec6cf%22%2c%22Oid%22%3a%22aa18ed52-f5bf-404c-bbbc-4340798be1fb%22%7d\n- **Passcode**: 3v0hF3\n- **Details**: Used for all daily UNIPOD METI AI Program live sessions, open hours, and webinars."
   },
   {
-    course_name: "General",
-    source_type: "link",
-    link_url: "https://drive.google.com/drive/folders/17B80XQ78XzC99gqR7G59mS0_fll9k9aW",
-    content: "### Official Google Drive Folder for Recorded Live Sessions & Slides\n- **Google Drive Folder Link**: https://drive.google.com/drive/folders/17B80XQ78XzC99gqR7G59mS0_fll9k9aW\n- **Details**: Contains video recordings and slide decks of all past live sessions, webinars, and orientation presentations."
-  },
-  {
     course_name: "MIT",
     source_type: "course_guideline",
     link_url: "https://mit-online.mit.edu/",
