@@ -79,20 +79,23 @@ export default function AdminDashboard() {
   };
 
   const updateConfig = async (fields: Partial<typeof config>) => {
+    const previousConfig = { ...config };
     const updated = { ...config, ...fields };
     setConfig(updated);
     setStatusMsg('Synchronizing master controls...');
     const { error } = await supabase.from('bot_config').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', 1);
     if (error) {
-      console.error('[Dashboard] Config update error:', error.message);
-      setStatusMsg(`⚠️ Update failed: ${error.message}`);
+      console.error('[Dashboard] Config update error:', error.message, error.details, error.hint);
+      setStatusMsg(`⚠️ Update failed: ${error.message}${error.hint ? ' — ' + error.hint : ''}`);
       // Revert optimistic update
-      setConfig(config);
+      setConfig(previousConfig);
+      setTimeout(() => setStatusMsg(''), 6000);
     } else {
       setStatusMsg('Master settings updated live via Realtime!');
+      setTimeout(() => setStatusMsg(''), 2500);
     }
-    setTimeout(() => setStatusMsg(''), 2500);
   };
+
 
   const saveKnowledge = async () => {
     if (!newContent.trim()) {
