@@ -107,7 +107,7 @@ Return STRICT JSON only matching this exact schema:
     } catch (reactErr) {}
 
     // 3. Post confirmation receipt on WhatsApp
-    const receiptText = `📌 *Saved to Knowledge Base*:\n\n*Category*: ${result.course_name}\n${result.summary_content}${result.link_url ? `\n*Link*: ${result.link_url}` : ''}`;
+    const receiptText = '📌 *Noted!*';
     try {
       await sock.sendMessage(senderJid, { text: receiptText }, { quoted: msg });
     } catch (sendErr) {}
