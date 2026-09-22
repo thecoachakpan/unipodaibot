@@ -949,7 +949,11 @@ async function startBot() {
       ? await resolveParticipantPhone(sock, rawParticipant, senderJid)
       : rawParticipant;
 
-    const messageType = Object.keys(msg.message || {})[0];
+    // Unbox WhatsApp message edits (protocolMessage type 14 = Message Edit)
+    const editedMsg = msg.message?.protocolMessage?.editedMessage;
+    const effectiveMsg = editedMsg || msg.message;
+
+    const messageType = Object.keys(effectiveMsg || {})[0];
     const isAudio = messageType === 'audioMessage';
     const isImage = messageType === 'imageMessage';
     const isDocument = messageType === 'documentMessage';
@@ -957,14 +961,14 @@ async function startBot() {
     // ----------------------------------------------------
     // PIPELINE 0: MESSAGE REVOCATION ENGINE (!delete / !revoke)
     // ----------------------------------------------------
-    const contextInfo = msg.message.extendedTextMessage?.contextInfo ||
-                        msg.message.imageMessage?.contextInfo ||
-                        msg.message.audioMessage?.contextInfo ||
-                        msg.message.documentMessage?.contextInfo ||
-                        msg.message.videoMessage?.contextInfo ||
-                        msg.message.buttonsResponseMessage?.contextInfo ||
-                        msg.message.listResponseMessage?.contextInfo ||
-                        msg.message.conversation?.contextInfo;
+    const contextInfo = effectiveMsg.extendedTextMessage?.contextInfo ||
+                        effectiveMsg.imageMessage?.contextInfo ||
+                        effectiveMsg.audioMessage?.contextInfo ||
+                        effectiveMsg.documentMessage?.contextInfo ||
+                        effectiveMsg.videoMessage?.contextInfo ||
+                        effectiveMsg.buttonsResponseMessage?.contextInfo ||
+                        effectiveMsg.listResponseMessage?.contextInfo ||
+                        effectiveMsg.conversation?.contextInfo;
 
     const contextParticipant = contextInfo?.participant || '';
 
@@ -1017,7 +1021,7 @@ async function startBot() {
                               contextInfo?.quotedMessage?.extendedTextMessage?.text ||
                               contextInfo?.quotedMessage?.imageMessage?.caption ||
                               contextInfo?.quotedMessage?.documentMessage?.caption || '';
-    const rawText = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || msg.message.documentMessage?.caption || '';
+    const rawText = effectiveMsg.conversation || effectiveMsg.extendedTextMessage?.text || effectiveMsg.imageMessage?.caption || effectiveMsg.documentMessage?.caption || '';
     const cleanLower = rawText.trim().toLowerCase();
 
     if (isFacilitator && (cleanLower === '!delete' || cleanLower === '!revoke' || cleanLower.startsWith('!delete') || cleanLower.startsWith('!revoke'))) {
@@ -1177,8 +1181,14 @@ async function startBot() {
       } catch (replyErr) {}
     }
 
-    let cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').replace(/podpal/gi, '').replace(/bot/gi, '').trim();
+    let cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').replace(/!respond/gi, '').replace(/!answer/gi, '').replace(/podpal/gi, '').replace(/bot/gi, '').trim();
     
+    // Force-Response Quote Reply Engine: If participant/admin quote-replies an unresponded message and tags @bot, !ask, !respond, or !answer,
+    // use the quoted message text as the prompt if no extra prompt text was provided!
+    if (quotedMessageText && (cleanPrompt.length === 0 || cleanLower.startsWith('!respond') || cleanLower.startsWith('!answer'))) {
+      cleanPrompt = quotedMessageText;
+    }
+
     // Buffer incoming message into chat sliding window
     if (rawText) {
       bufferChatMessage(senderJid, senderParticipant, validPushName, rawText, false);
@@ -1200,7 +1210,7 @@ async function startBot() {
 
     const mentionedAdmin = FACILITATOR_MAP.find(a => cleanLower.includes(a.name));
     const mentionsAdmin = !!mentionedAdmin;
-    const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('podpal') || cleanLower.includes('bot');
+    const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('!respond') || cleanLower.includes('!answer') || cleanLower.includes('podpal') || cleanLower.includes('bot');
 
     // Standalone Tag Handler: If bot is tagged without prompt text, scan recent unresponded messages
     if (isTagged && cleanPrompt.length === 0) {
@@ -1247,7 +1257,7 @@ async function startBot() {
     const isQuotedPeerReply = isGroup && !isQuotedBotReply && !!contextInfo?.quotedMessage;
     const isQuotedAnyReply = !!contextInfo?.quotedMessage;
     const isQuestionMentioningAdmin = mentionsAdmin && isQuestionOrInquiry;
-    const isCommandOrAction = cleanPrompt.startsWith('!') || /(translate|traduire|traduis|send.*privately|send.*dm|summarize|remind|poll|event|post)/i.test(cleanLower);
+    const isCommandOrAction = cleanPrompt.startsWith('!') || /(translate|traduire|traduis|send.*privately|send.*dm|summarize|remind|poll|event|post|respond|answer)/i.test(cleanLower);
 
     if (isGroup) {
       if (runtimeConfig.chat_scope === 'private_only') return;
