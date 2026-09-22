@@ -30,6 +30,26 @@ export const DEFAULT_DOCUMENT_CATALOG = [
     description: 'Official video recording stream link for the Wadhwani Platform Onboarding Welcome Session.'
   },
   {
+    doc_key: 'wadhwani_module1_summary',
+    title: 'Wadhwani Ignite Module 1 Class Session — Problem Statement & Venture Creation',
+    file_name: 'Wadhwani_Ignite_Module_1_Class_Session.md',
+    drive_file_id: null,
+    keywords: ['wadhwani module 1', 'problem statement rules', '350 characters', '150 characters', 'venture creation', 'add member', 'problem statement guide', 'module 1 summary'],
+    category: 'Wadhwani',
+    is_available: true,
+    description: 'Official overview, problem statement rules, venture creation steps, and FAQs for Wadhwani Module 1.'
+  },
+  {
+    doc_key: 'wadhwani_module1_transcript',
+    title: 'Wadhwani Ignite Module 1 Class Session Cleaned Verbatim Transcript',
+    file_name: 'Wadhwani_Module_1_Class_Session_Clean_Transcript.md',
+    drive_file_id: null,
+    keywords: ['wadhwani module 1 transcript', 'problem statement transcript', 'module 1 class transcript', 'charles bolton module 1'],
+    category: 'Wadhwani',
+    is_available: true,
+    description: 'Clean, filler-free verbatim speaker transcript of Wadhwani Module 1 class session.'
+  },
+  {
     doc_key: 'wadhwani_template',
     title: 'Wadhwani Business Model & Venture Canvas Template',
     file_name: 'Wadhwani_Business_Model_Template.pdf',
