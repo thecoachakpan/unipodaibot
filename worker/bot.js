@@ -774,7 +774,10 @@ async function getRelevantKnowledgeContext(userQuery, maxEntries = 5) {
 
   return topEntries.map(s => {
     const e = s.entry;
-    return `### [${e.course_name}]\n${e.content}${e.link_url ? `\nLink: ${e.link_url}` : ''}`;
+    // Strip Drive URLs from KB context to prevent Gemini from leaking them in responses
+    const sanitizedContent = (e.content || '').replace(/\[Download [^\]]*\]\(https:\/\/drive\.google\.com[^)]*\)/gi, '[Official Document — request as native attachment]')
+                                              .replace(/https:\/\/drive\.google\.com\/[^\s)"']*/gi, '[REDACTED_DRIVE_URL]');
+    return `### [${e.course_name}]\n${sanitizedContent}`;
   }).join('\n---\n');
 }
 
@@ -1932,6 +1935,8 @@ Respond with ONLY the JSON object, nothing else.`;
             const hasValidDmTarget = targetDmJid && cleanSenderNum && cleanSenderNum.length <= 15;
             const userHasDMForDoc = hasValidDmTarget && hasActiveDMSession(targetDmJid);
 
+            console.log(`[DM Session Debug - Doc Pipeline] targetDmJid=${targetDmJid}, cleanSenderNum=${cleanSenderNum}, hasValidDmTarget=${hasValidDmTarget}, userHasDMForDoc=${userHasDMForDoc}, wantsDocPrivately=${wantsDocPrivately}`);
+
             // DM routing logic — default is CURRENT CHAT LOCATION (group → group).
             // Only attempt DM delivery when user explicitly asks for private delivery.
             if (!wantsDocHere && wantsDocPrivately) {
@@ -2042,6 +2047,7 @@ Respond with ONLY the JSON object, nothing else.`;
       const isFrench = ['bonjour', 'salut'].includes(cleanPrompt.toLowerCase().trim());
       const welcome = getWelcomeMessage(isFrench);
       updateSessionHistory(senderJid, cleanPrompt, welcome);
+      console.log(`[DM Session Debug - Greeting] Session created/refreshed for senderJid=${senderJid}`);
       await sock.sendPresenceUpdate('composing', senderJid);
       await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
       await sock.sendPresenceUpdate('paused', senderJid);
@@ -2141,6 +2147,11 @@ ${relevantKB}`;
       }
 
       replyText = formatWhatsAppMarkdown(replyText || 'Unable to generate response.');
+
+      // Drive Privacy Shield: Strip any Google Drive URLs from AI responses before delivery
+      replyText = replyText.replace(/\[Download [^\]]*\]\(https:\/\/drive\.google\.com[^)]*\)/gi, '[Official document — ask me to upload the file directly]')
+                           .replace(/https:\/\/drive\.google\.com\/[^\s)"']*/gi, '[document available as native attachment — ask me to share the file]');
+
       bufferChatMessage(senderJid, rawBotId, 'PodPal BOT', replyText, true);
 
       // Save sliding window session turn for DM conversations
@@ -2174,6 +2185,7 @@ ${relevantKB}`;
         // Use resolved phone-based DM JID for session check and delivery
         const dmCheckJid = targetDmJid || senderParticipant;
         const userHasDM = hasActiveDMSession(dmCheckJid);
+        console.log(`[DM Session Debug - AI Pipeline] dmCheckJid=${dmCheckJid}, targetDmJid=${targetDmJid}, userHasDM=${userHasDM}`);
         const displayTag = cleanSenderNum ? `@${cleanSenderNum}` : (validPushName || '@participant');
         // Use only phone-based JIDs for mentions (never raw LID JIDs)
         const dmPhoneJid = targetDmJid || (resolvedParticipant && !resolvedParticipant.includes('@lid') ? resolvedParticipant : null);
