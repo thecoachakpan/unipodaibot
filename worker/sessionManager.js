@@ -49,13 +49,21 @@ export async function recordDMSession(senderJid) {
 
   if (supabaseClient) {
     try {
-      await supabaseClient.from('dm_sessions').upsert({
+      const { error } = await supabaseClient.from('dm_sessions').upsert({
         jid: key,
         last_dm_at: new Date().toISOString()
       }, { onConflict: 'jid' });
+
+      if (error) {
+        console.error(`[DM Session Persist Error]: ${error.message} (code: ${error.code})`);
+      } else {
+        console.log(`[DM Session] 💾 Persisted DM session for ${key}`);
+      }
     } catch (err) {
-      console.error('[DM Session Persist Error]:', err?.message || err);
+      console.error('[DM Session Persist Exception]:', err?.message || err);
     }
+  } else {
+    console.warn('[DM Session] ⚠️ supabaseClient is null — cannot persist DM session');
   }
 }
 
@@ -69,6 +77,7 @@ export async function hasActiveDMSession(senderJid) {
   // Fast path: check in-memory Map first
   const session = userSessions.get(key);
   if (session && Date.now() - session.lastActive <= SESSION_TTL_MS) {
+    console.log(`[DM Session] ✅ In-memory session found for ${key}`);
     return true;
   }
 
@@ -76,23 +85,29 @@ export async function hasActiveDMSession(senderJid) {
   if (supabaseClient) {
     try {
       const cutoff = new Date(Date.now() - DM_SESSION_TTL_MS).toISOString();
-      const { data } = await supabaseClient
+      const { data, error } = await supabaseClient
         .from('dm_sessions')
         .select('last_dm_at')
         .eq('jid', key)
         .gt('last_dm_at', cutoff)
-        .single();
+        .maybeSingle();
+
+      if (error) {
+        console.error(`[DM Session Lookup Error]: ${error.message} (code: ${error.code})`);
+        return false;
+      }
 
       if (data) {
         console.log(`[DM Session] ✅ Found persisted DM session for ${key} (last: ${data.last_dm_at})`);
         return true;
       }
+
+      console.log(`[DM Session] ❌ No persisted DM session for ${key}`);
     } catch (err) {
-      // .single() throws when no row found — not a real error
-      if (err?.code !== 'PGRST116') {
-        console.error('[DM Session Lookup Error]:', err?.message || err);
-      }
+      console.error('[DM Session Lookup Exception]:', err?.message || err);
     }
+  } else {
+    console.warn('[DM Session] ⚠️ supabaseClient is null — cannot check DM session');
   }
 
   return false;
