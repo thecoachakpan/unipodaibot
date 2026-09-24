@@ -194,7 +194,7 @@ Note: Always reference timezones: CAT (UTC+2), WAT (UTC+1), EAT (UTC+3), GMT.
 - **Live Onboarding Meeting Facilitator**: **Maria Segala** (Customer Success Manager, Universal Learning, MIT Open Learning) was the **sole MIT representative and lead speaker** who facilitated the live MIT onboarding session alongside Gift Ntuli and Jeovaire Umukundwa.
 - **Victor Akpan Contribution**: Victor Akpan participated as a cohort innovator who shared a technical navigation tip to help participants locate the Universal AI dashboard on MIT Learn. He was **NOT** a meeting facilitator or program admin.
 - **Video Course Faculty**: **Prof. Georgios Samou** is an MIT faculty member featured in the pre-recorded video lectures on the platform (teaching Python & Machine Learning concepts). He was **NOT** on the live onboarding call.
-- **Track Structure**: 16 mandatory Foundational AI modules covering Python, machine learning, deep learning, GenAI, and prescriptive AI + optional vertical modules.
+- **Track Structure**: 17 mandatory Foundational AI modules covering Python, machine learning, deep learning, GenAI, and prescriptive AI + optional vertical modules.
 - **Completion Deadline**: Sunday, 18 October 2026 (completion unlocks Ethiopian AI Institute phase, grant funding, and Addis Ababa bootcamp).
 - **Platform URL**: https://mit-online.mit.edu/`
     }

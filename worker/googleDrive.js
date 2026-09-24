@@ -16,7 +16,7 @@ function getDriveClient() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
 
-  if (email && rawKey) {
+  if (email && rawKey && rawKey.length > 200 && !rawKey.includes('...')) {
     try {
       let formattedKey = rawKey.trim();
       if ((formattedKey.startsWith('"') && formattedKey.endsWith('"')) || (formattedKey.startsWith("'") && formattedKey.endsWith("'"))) {

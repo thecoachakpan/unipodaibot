@@ -26,7 +26,7 @@ const entries = [
     source_type: 'onboarding_session',
     link_url: 'https://mit-online.mit.edu/',
     content: `### MIT Universal AI Onboarding — Track Structure & Completion Deadline
-- **Core Curriculum**: 16 mandatory Foundational AI modules covering Python programming, data analytics, machine learning algorithms, deep learning, generative AI, and prescriptive AI.
+- **Core Curriculum**: 17 mandatory Foundational AI modules covering Python programming, data analytics, machine learning algorithms, deep learning, generative AI, and prescriptive AI.
 - **Optional Vertical Modules**: Industry-specific deep dives in Precision Medicine, Holistic AI in Healthcare, Sustainable Energy, Transportation, and Finance.
 - **Completion Deadline**: Sunday, 18 October 2026. Earning the foundational certificate unlocks downstream stages (Ethiopian AI Institute phase, grant funding, Addis Ababa bootcamp).
 - **Platform URL**: https://mit-online.mit.edu/`
