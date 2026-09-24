@@ -1,7 +1,8 @@
 # UniPods METI AI Program - WhatsApp Assistant & Knowledge Orchestration Specification
 
 ## 1. System Overview & Architecture
-An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** designed to eliminate repetitive administrative FAQs across 240+ startup founders, facilitators, and program leads. It runs with zero cloud storage costs, supports multilingual voice notes natively in OGG Opus, operates fluently across English and French with dynamic mid-chat language switching, incorporates Meta anti-ban guardrails, features computer vision screenshot diagnostics, automated PDF ingestion to Google Drive, smart group-to-DM response routing, admin private DM reminder scheduling, and a Supabase Auth protected admin portal.
+
+An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** designed to eliminate repetitive administrative FAQs across 240+ startup founders, facilitators, and program leads. It runs with zero cloud storage costs, supports multilingual voice notes natively in OGG Opus, operates fluently across English and French with dynamic per-turn mid-chat language switching, incorporates Meta anti-ban guardrails, features computer vision screenshot diagnostics, automated PDF ingestion to Google Drive, guaranteed native document attachments, selective Drive URL privacy shielding, smart group-to-DM response routing with Supabase DM session persistence, admin private DM reminder scheduling, an admin group recap engine (`!recap`), Web QR code authentication & session reset endpoints (`/qr`, `/reset-qr`), `/health` zero-sleep metrics server, and a Supabase Auth protected admin portal.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -9,15 +10,15 @@ An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** desig
 │               (Hosted on Vercel: $0)                        │
 │  - Supabase Auth Guarded Access (Login / Logout)            │
 │  - Remote Master Kill-Switch (Online / Offline)             │
-│  - Chat Scope Selector (Private Only vs. DMs & Groups)      │
+│  - Chat Scope Selector (Both / Private Only / Group Off)    │
 │  - Scheduled Reminders Monitor & Manual Trigger             │
 │  - FAQ Markdown Editor & AI Ingestion Trigger               │
 │  - Unanswered Question Log Synthesizer                      │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ Reads & Writes
+                               │ Reads & Writes (HTTPS & WSS)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      Supabase Free Tier                     │
+│                      Supabase Postgres                      │
 │  - bot_config (Config broadcasted via Realtime WebSockets)  │
 │  - whatsapp_auth (Persistent Baileys session credentials)   │
 │  - knowledge_entries (Dynamic context for Gemini & Links)   │
@@ -37,6 +38,7 @@ An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** desig
 │  - Multi-Participant Summary Dispatch Queue & Varied Receipts│
 │  - Smart Group-to-DM Routing (Private vs Public relevance)  │
 │  - Missed Meeting Summary & Key Action Points Dispatcher    │
+│  - Admin Group Recap Engine (!recap) & Anonymized Synthesis │
 │  - Message Revocation Engine (sock.sendMessage delete)      │
 │  - Admin Private DM Command Mode & Scheduler Ticker         │
 │  - Multimodal Vision: Computer Vision & Proactive Screenshot│
@@ -53,18 +55,26 @@ An automated, production-grade WhatsApp AI assistant titled **PodPal BOT** desig
 │    1. Primary: Gemini API (gemini-3.1-flash-lite)          │
 │    2. Fallback: Gemini API (gemini-3.5-flash-lite)         │
 │  - Render Zero-Sleep Uptime: HTTP /health & 9m Self-Ping    │
-└──────────────────────────────┘
+│  - Web QR & Session Reset Engine (/qr & /reset-qr)          │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. Meta Anti-Ban Guidelines & Hardening
+## 2. Operational Scope Modes & Anti-Ban Guardrails
 
-Running automated bots via Baileys connects as an emulated WhatsApp Web multi-device companion. To prevent Meta's automated anti-abuse systems from flagging and banning the phone number/SIM:
+### 2.1 Operational Scope Modes
+Configured dynamically via `bot_config.chat_scope` in Supabase (or via the Next.js Admin Portal):
+1. `both` — Bot responds in both private DMs and group chats (tagged, quoted, or fresh unquoted questions).
+2. `private_only` — Bot responds ONLY in private DMs and completely ignores group messages.
+3. `group_deactivated` — Bot responds in DMs and monitors groups silently (capturing admin announcement links & chat updates) but does NOT auto-reply in groups.
+
+### 2.2 Meta Anti-Ban Guidelines & Hardening
+Running automated bots via Baileys connects as an emulated WhatsApp Web multi-device companion. To prevent Meta's automated anti-abuse systems from flagging or banning the account:
 
 1. **Strict Inbound-Only Engagement (No Cold DMs):**
    - **Never** perform automated cold-messaging or unsolicited DMs to users who have not messaged the bot first.
-   - If a participant asks a private question in a group chat, but has never initiated a private DM with the bot before, the bot politely responds in the group: *"Hi @User, send me a quick 'Hi' in a private DM and I'll drop your answer right away!"* to comply with Meta anti-ban rules.
+   - If a participant asks a private question in a group chat but has no active DM session (`hasActiveDMSession()`), the bot politely responds in the group: *"Hi @user, I can send messages to you privately. Kindly send me 'Hi' in a private DM so I can assist you with program-related questions. 😊"* to comply with Meta anti-ban rules.
 2. **Selective Triggering, Declarative Statement Guard & Privacy Guard in Group Chats:**
    - The bot must **never** process or reply to every message in a group, and must **never** interfere in peer-to-peer conversations, casual comments, or declarative statements between participants.
    - Declarative statements (e.g. *"I submitted module 2"*, *"The call was good"*, *"Me too"*) are filtered out even if they contain program keywords.
@@ -108,7 +118,7 @@ Running automated bots via Baileys connects as an emulated WhatsApp Web multi-de
 create table if not exists bot_config (
   id int primary key default 1,
   is_active boolean not null default true,
-  chat_scope text not null default 'both' check (chat_scope in ('private_only', 'both')),
+  chat_scope text not null default 'both' check (chat_scope in ('private_only', 'both', 'group_deactivated')),
   updated_at timestamptz default timezone('utc'::text, now())
 );
 
@@ -218,31 +228,33 @@ Comment puis-je vous aider aujourd'hui ? 😊
 - Commands: `!remind 30m,5m "Wadhwani Q&A starting soon! Join: https://..."` or `!announce "New submission rules published"`.
 - 1-minute ticker checks `scheduled_reminders` and broadcasts to group chats at 30m/5m before meetings or 12h/1h before deadlines.
 
-### 6.2 Supabase-Persisted Smart Group-to-DM Response Routing
+### 6.2 Admin Group Recap Engine (`!recap`)
+- Synthesizes today's admin updates and announcements from an expanded in-memory chat buffer.
+- Historical recaps ("week", "all") pull from persistent `knowledge_entries` KB entries.
+- Strictly anonymizes participant names to preserve cohort privacy.
+
+### 6.3 Supabase-Persisted Smart Group-to-DM Response Routing
 - Defaults to current chat context (DM → DM, Group → Group).
 - General cohort queries -> Answered directly in group chat.
 - Participant-specific queries or explicit private delivery requests:
   - User has active DM session (checked via Supabase `dm_sessions` table, survives Render spin-downs) -> Detailed answer sent to DM + group note: *"Hi @User, check your DM! I've responded to your message."*
   - User has NO active DM session -> Group note: *"Hi @User, I can send messages to you privately. Kindly send me 'Hi' in a private DM so I can assist you with program-related questions. 😊"*
-- DM sessions are recorded under **phone-based JIDs** (`targetDmJid`, e.g. `2349093696284@s.whatsapp.net`) for reliable cross-context group→DM lookup, even when the DM `senderJid` is a `@lid` JID. This is critical because WhatsApp may send `@lid` identities in DM contexts but resolves to phone-based JIDs in group contexts.
+- DM sessions are recorded under **phone-based JIDs** (`targetDmJid`, e.g. `2349093696284@s.whatsapp.net`) for reliable cross-context group→DM lookup, even when the DM `senderJid` is a `@lid` JID.
 
-### 6.3 Message Revocation Engine (`!delete` / `!revoke`)
+### 6.4 Message Revocation Engine (`!delete` / `!revoke`)
 - Admins replying to any bot message with `!delete` or `!revoke` trigger instant message deletion for everyone via `sock.sendMessage(jid, { delete: messageKey })`.
 
-### 6.4 Multi-Participant Summary Queue & Varied Receipts
+### 6.5 Multi-Participant Summary Queue & Varied Receipts
 - When multiple users reply *"Yes, send to me too"*, **PodPal BOT** queues requesting users, dispatches summaries sequentially with a 2.5s jitter delay, and posts natural varied group receipts (*"I have sent it to your DM!"*, *"Check your DM shortly"*, *"You'll get it right away!"*).
 
-### 6.5 Missed Meeting Executive Summary & Action Points Dispatcher
+### 6.6 Missed Meeting Executive Summary & Action Points Dispatcher
 - When founders inquire about past calls, **PodPal BOT** detects the concluded date, offers executive summaries & key action points, and answers follow-up questions.
 
-### 6.6 Automatic Link Extraction & Retrieval (`!links`)
+### 6.7 Automatic Link Extraction & Retrieval (`!links`)
 - Intercepts URLs shared by admins and categorizes them. Users type `!links` or ask for specific links.
 
-### 6.7 Expired Event & Past Deadline Guard
+### 6.8 Expired Event & Past Deadline Guard
 - Warns users if a meeting or deadline has concluded, providing recording links or support email (`unipods.regional@undp.org`).
-
-### 6.8 Hackathon Team Eligibility Checker
-- Interactive verification of team compliance with UniPods Chatbot Hackathon rules (max 5 members, multi-country representation, at least 1 female member).
 
 ### 6.9 WhatsApp LID Identity Guard & PushName Admin Fallback
 - **LID Phone Guard**: Discards `@lid` numbers or raw LID strings (>15 digits) when identifying users. Prevents invalid LID tags (e.g. `@+120363430230054304`) from being output in group receipts or mentions, restricting tags strictly to valid E.164 phone numbers (<=15 digits).
@@ -256,12 +268,18 @@ Comment puis-je vous aider aujourd'hui ? 😊
 - **Group Upload Fallback**: If the user requested the document in a group chat with explicit group intent ("send here", "upload here", "in group") OR if the user does NOT have an active DM session OR if DM dispatch fails: automatically uploads the native document attachment directly into the group chat to guarantee document delivery NEVER fails.
 - **Strict Delivery Confirmation**: **NEVER** output text confirming or claiming that a file was sent to a private DM if no file attachment was physically dispatched and delivered.
 
+### 6.11 Web QR Code & Health Server (`/qr`, `/reset-qr`, `/health`)
+- `http://localhost:10000/qr` or `https://<render-app>.onrender.com/qr`: Displays a responsive web page containing the live WhatsApp authentication QR code.
+- `http://localhost:10000/reset-qr` or `https://<render-app>.onrender.com/reset-qr`: Instantly purges stale Supabase auth entries, resets socket connection, and forces QR re-generation.
+- `/health`: Returns JSON server status metrics and maintains 24/7 zero-sleep via internal heartbeat (`startSelfPing()`) and external UptimeRobot monitors.
+
 ---
 
 ## 7. Next.js Admin Dashboard with Supabase Auth (app/admin/page.tsx)
+
 - Protected by Supabase Auth (`app/login/page.tsx`).
 - Remote Master Kill Switch (Active / Offline).
-- Operational Scope Selector: *Private Only* / *DMs & Groups* / *Group Deactivated (Silent Observation)*.
+- Operational Scope Selector: *Both (DMs & Groups)* / *Private Only* / *Group Deactivated (Silent Observation)*.
 - Scheduled Reminders Monitor & Manual Trigger.
 - FAQ Markdown Editor & AI Ingestion Trigger.
 - Unanswered Question Log Synthesizer ("Log on Miss").
@@ -269,6 +287,7 @@ Comment puis-je vous aider aujourd'hui ? 😊
 ---
 
 ## 8. Google Drive Automated PDF Ingestion & File Delivery Pipeline
+
 - Uses Google Service Account JWT auth (`googleDrive.js`).
 - Ingestion: Uploads decrypted WhatsApp PDF/Doc buffers (<20MB) to a shared Google Drive folder and syncs metadata to Supabase `knowledge_entries`.
 - Delivery: When requested by users, downloads native document buffers from Google Drive and dispatches native document attachments directly to WhatsApp. Strictly avoids raw Drive URLs.
@@ -276,7 +295,8 @@ Comment puis-je vous aider aujourd'hui ? 😊
 ---
 
 ## 9. Grounded Program FAQ & Reference Data
-- **Key Contacts**: `unipods.regional@undp.org`, `uaisupport@mit.edu`, Victor Akpan (`+234 909 369 6284`), Charles Bolton (`+27 79 356 5520`), Gift Ntuli (`+263 77 409 4822`), Diane (`+250 78 318 8655`), Jeovaire Umukundwa (`+250 78 935 5992`), Munira Umugwaneza (`+250 78 638 7244`).
+
+- **Key Support Contacts**: `unipods.regional@undp.org` (General & Wadhwani), `uaisupport@mit.edu` (MIT Track), Victor Akpan (`+234 909 369 6284`), Charles Bolton (`+27 79 356 5520`), Gift Ntuli (`+263 77 409 4822`), Diane (`+250 78 318 8655`), Jeovaire Umukundwa (`+250 78 935 5992`), Munira Umugwaneza (`+250 78 638 7244`).
 - **Key Deadlines**:
   - UN GA Demo Video Submission: Friday, 18 Sept 2026 @ 2:00 PM CAT.
   - UniPods Chatbot Hackathon: 18 Sept – 24 Sept 2026 ($5,000 prize).
