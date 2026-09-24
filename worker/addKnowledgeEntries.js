@@ -96,7 +96,11 @@ const newEntries = [
 - **Module 1 Coaching & Q&A: Problem Statement (17 September 2026)** — Shared by Facilitator Charles Bolton:
   YouTube: https://youtu.be/-6G7LXiu47o
 - **Module 2, Part 1 Class Session: Customer Identification & Validation (22 September 2026)** — Shared by Facilitator Charles Bolton:
-  YouTube: https://youtu.be/C9gaW26GfWw`
+  YouTube: https://youtu.be/C9gaW26GfWw
+
+#### Ethiopian AI Institute Track:
+- **Needs Assessment Session** — Recording:
+  Google Drive: https://drive.google.com/file/d/11vrHiile_08KDK-KDhmJDJ7cri1QfFoR/view?usp=drive_link`
     }
   },
   {
