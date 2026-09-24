@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "next start",
     "worker": "node worker/bot.js",
-    "seed": "node worker/seedKnowledge.js"
+    "seed": "node worker/seedKnowledge.js",
+    "seed:add": "node worker/addKnowledgeEntries.js"
   },
   "dependencies": {
     "@google/genai": "latest",

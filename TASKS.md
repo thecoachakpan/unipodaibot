@@ -87,3 +87,26 @@ This document tracks the step-by-step implementation tasks for **PodPal BOT** (U
   - Verify syntax and fallback execution chains (`node --check worker/bot.js`).
   - Test login flow, language switching (English <-> French), welcome message, multi-participant summary queue & varied receipts, missed meeting summary offers, Smart DM routing, `!delete` command, Admin DM reminder scheduling, `!links` command, screenshot diagnostic flow, and kill-switch sync.
 
+---
+
+## Phase 5: KB Expansion, System Prompt Hardening & Recap Command
+- [x] **5.1 Knowledge Base Expansion (`worker/resetAndSeedKnowledgeBase.js`)**
+  - Seed 7 new verified KB entries sourced from recurring group chat FAQ analysis:
+    - Hackathon rules, teams & deliverables ($5K prize, gender/country composition)
+    - Wadhwani Passion CV "(South Africa)" workaround, venture setup & unlock sequence
+    - UN General Assembly 5-minute video demo submission requirements
+    - Session recordings & Teams meeting access (YouTube + Drive links)
+    - University of Tokyo GCI programme clarification (not linked / not compulsory)
+    - Master team registration sheet editing rules & link
+    - Programme structure, progression gates & common misconceptions
+- [x] **5.2 System Prompt Hardening (`worker/bot.js` — `getCoreSystemRules()`)**
+  - Strengthen Rule 9 (Focus Shield) with explicit off-topic example categories
+  - Strengthen Rule 18 (Security Shield) with specific adversarial probe patterns
+  - Add Rule 21 (Summaries & Recaps) — anonymized summaries, no participant name attribution
+  - Add Rule 22 (Recency) — latest admin message overrides conflicting earlier info
+- [x] **5.3 `!recap` Command Implementation (`worker/bot.js`)**
+  - In-memory recap for "today": Filters admin messages from expanded 100-message chat buffer, synthesizes via lightweight Gemini call with Rule 21 guardrails
+  - KB-based recap for "week/all": Pulls relevant entries via `getRelevantKnowledgeContext()` for historical context (admin `!save` additions provide persistent data)
+  - Anonymous participant topic trend aggregation (keyword frequency, no names)
+  - Added `isAdmin` flag to `bufferChatMessage()` for efficient admin-message filtering
+  - Added natural language triggers (`recap`, `what did I miss`, `catch me up`, `any updates`) to group command recognition pattern
