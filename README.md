@@ -99,7 +99,7 @@ It operates with **zero cloud storage costs**, supports **multilingual voice not
 
 ## 🛠️ Complete Setup Guide (Run & Maintain locally or on Server)
 
-Follow this step-by-step guide to run and maintain **PodPal BOT** from scratch on any system.
+Follow this step-by-step guide to run and maintain **PodPal BOT** and its **Next.js Admin Dashboard** from scratch on any system.
 
 ### Prerequisites
 - **Node.js**: v18.0.0 or higher.
@@ -140,7 +140,12 @@ npm install
    - `Project URL`
    - `anon public` key
    - `service_role` secret key (Required for backend worker access).
-6. Go to **Authentication > Users** in Supabase and click **Add User > Create User** to create an admin user for the Next.js Admin Portal.
+
+#### Creating Admin Dashboard Users in Supabase Auth
+1. Navigate to **Authentication > Users** in your Supabase dashboard.
+2. Click **Add User > Create User**.
+3. Enter an email address (e.g., `admin@unipod.ai`) and secure password.
+4. Click **Create User**. This account will be used to log into the Next.js Admin Dashboard.
 
 ---
 
@@ -175,7 +180,7 @@ Fill in your variables in `.env`:
 # Google Gemini API Key
 GEMINI_API_KEY=AIzaSy...
 
-# Supabase Credentials
+# Supabase Credentials (Used by both Worker & Admin Dashboard)
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJh...
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
@@ -205,9 +210,38 @@ npm run seed
 
 ---
 
-### Step 6: Run Locally
+### Step 6: Next.js Admin Dashboard Setup & Local Execution
 
-#### Option A: Start Background Worker (WhatsApp AI Engine)
+The **Next.js Admin Dashboard** provides full real-time control over bot operations, scope modes, knowledge publishing, scheduled reminders, and log-on-miss unresolved queries.
+
+#### 6.1 Running the Admin Dashboard Locally
+In your terminal, run:
+
+```bash
+npm run dev
+```
+
+1. Open your browser and navigate to `http://localhost:3000/login`.
+2. Enter the admin credentials created in **Step 2 (Supabase Auth)**.
+3. Click **Sign In**.
+4. Upon successful authentication, you will be redirected to `http://localhost:3000/admin`.
+
+#### 6.2 Key Admin Dashboard Capabilities
+- **Master Kill Switch**: Instantly toggle the bot **ACTIVE** or **OFFLINE** across all channels.
+- **Operational Scope Selector**: Switch between:
+  - `Both (DMs & Groups)`
+  - `Private DMs Only`
+  - `Group Deactivated (Silent Observation)`
+- **Scheduled Reminders Monitor**: Inspect upcoming group broadcasts and manually trigger reminders.
+- **Knowledge Publisher**: Create and edit grounded Q&A entries categorized by course track (MIT, Wadhwani, Ethiopia AI, General).
+- **Log-on-Miss Synthesizer**: View queries that the bot could not answer (`unresolved_queries`) and resolve them into knowledge entries with a single click.
+
+---
+
+### Step 7: Running the Background Worker Locally
+
+In a second terminal window, run the WhatsApp AI worker:
+
 ```bash
 npm run worker
 ```
@@ -217,18 +251,21 @@ npm run worker
 3. Open **WhatsApp** on your phone, go to **Settings > Linked Devices > Link a Device**, and scan the QR code.
 4. Once scanned, the worker output will log: `✅ [Baileys Client]: WhatsApp Client Successfully Connected!`.
 
-#### Option B: Start Next.js Admin Dashboard
-In a separate terminal window:
-```bash
-npm run dev
-```
-Open `http://localhost:3000` in your browser, log in with your Supabase Admin user credentials, and manage bot settings.
-
 ---
 
-### Step 7: Production Deployment & 100% Uptime Setup
+### Step 8: Production Deployment & 100% Uptime Setup
 
-#### 7.1 Deploy Worker on Render (24/7 Web Container)
+#### 8.1 Deploying the Next.js Admin Dashboard on Vercel ($0 Free Tier)
+1. Log in to [Vercel.com](https://vercel.com) and click **Add New > Project**.
+2. Connect your GitHub repository (`unipodaibot`).
+3. Set the Environment Variables under **Environment Variables**:
+   - `NEXT_PUBLIC_SUPABASE_URL` = `https://your-project.supabase.co`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = `your_anon_key`
+   - `SUPABASE_SERVICE_ROLE_KEY` = `your_service_role_key`
+4. Click **Deploy**.
+5. Vercel will build and host your Admin Dashboard at `https://your-app.vercel.app`. Access `https://your-app.vercel.app/login` to manage the bot from anywhere!
+
+#### 8.2 Deploying the Background Worker on Render (24/7 Web Container)
 1. Log in to [Render.com](https://render.com).
 2. Click **New + > Web Service** and connect your Git repository.
 3. Set the following settings:
@@ -240,12 +277,12 @@ Open `http://localhost:3000` in your browser, log in with your Supabase Admin us
 5. Set `RENDER_EXTERNAL_URL` to `https://podpal-bot.onrender.com`.
 6. Click **Deploy Web Service**.
 
-#### 7.2 Web QR Authentication in Production
+#### 8.3 Web QR Authentication in Production
 - After Render builds and starts the container, navigate to `https://podpal-bot.onrender.com/qr` in your web browser.
 - Scan the QR code displayed on the page with your WhatsApp phone.
 - If the session ever disconnects or needs resetting, visit `https://podpal-bot.onrender.com/reset-qr` to disconnect and generate a fresh QR code instantly.
 
-#### 7.3 Guaranteed 100% Zero-Sleep Uptime Setup
+#### 8.4 Guaranteed 100% Zero-Sleep Uptime Setup
 1. Render Web Services automatically include a built-in heartbeat self-ping (`startSelfPing()`) every 9 minutes when `RENDER_EXTERNAL_URL` is set.
 2. **Recommended Secondary Monitor**:
    - Create a free account on [UptimeRobot.com](https://uptimerobot.com) or [cron-job.org](https://cron-job.org).
@@ -253,14 +290,6 @@ Open `http://localhost:3000` in your browser, log in with your Supabase Admin us
      - **URL**: `https://podpal-bot.onrender.com/health`
      - **Interval**: Every 5 minutes.
    - This keeps your Render container active 24/7/365 with **Zero Sleep**!
-
-#### 7.4 Deploy Admin Dashboard on Vercel
-1. Log in to [Vercel.com](https://vercel.com) and import the repository.
-2. Set Environment Variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-3. Click **Deploy**.
 
 ---
 
@@ -349,7 +378,7 @@ Then restart the worker process.
 ---
 
 ### 5. Knowledge Base Maintenance & Log-on-Miss
-1. Open the Next.js Admin Portal (`/admin`).
+1. Open the Next.js Admin Portal (`/admin` or `https://your-app.vercel.app/admin`).
 2. **Publish FAQs**: Add new course rules, deadlines, or portal guides under **Knowledge Base**.
 3. **Resolve Unanswered Queries ("Log-on-Miss")**:
    - Review entries in the **Unresolved Queries** tab (logged automatically when the bot could not resolve a question).
