@@ -216,13 +216,22 @@ Note: Always reference timezones: CAT (UTC+2), WAT (UTC+1), EAT (UTC+3), GMT.
     source_type: 'faq',
     content: `### Session Recordings & Live Meeting Access
 - **Wadhwani Live Sessions**: Every Tuesday (Class) & Thursday (Coaching/Q&A) at 3:00 PM CAT (2:00 PM WAT / 4:00 PM EAT).
-- **Microsoft Teams Meeting Link**: https://teams.microsoft.com/meet/419860837373470?p=jYchWkDZnC4etsclnK
-- **Meeting ID**: 419 860 837 373 470 | **Passcode**: g2Z7gc7Q
-- **Wadhwani Welcome & Module 0 Recording**: https://youtu.be/yVji4ZQECVw
-- **Wadhwani Module 1 Class Recording**: https://youtu.be/6q4uPBO_sDc
-- **Wadhwani Module 1 Coaching (Problem Statement)**: https://youtu.be/-6G7LXiu47o
-- **Wadhwani Module 2 (Customer Identification)**: https://youtu.be/C9gaW26GfWw
-- **MIT Universal AI Onboarding Recording**: https://drive.google.com/file/d/1E5RrwULX8zSjwxHFSxiQzCTtp20ulYQ8/view`
+- **Microsoft Teams Meeting Link**: https://teams.microsoft.com/meet/419860837373470?p=jYchWkDZnC4etsclnK (Meeting ID: 419 860 837 373 470 | Passcode: g2Z7gc7Q)
+
+#### MIT Universal AI Track:
+- **MIT Universal AI Welcome & Onboarding Call (16 September 2026)** — Shared by Admin Diane:
+  Google Drive: https://drive.google.com/file/d/1E5RrwULX8zSjwxHFSxiQzCTtp20ulYQ8/view?usp=sharing
+
+#### Wadhwani Ignite Track:
+- **Welcome Session & Module 0 (10 September 2026)** — Shared by Facilitator Charles Bolton:
+  YouTube: https://youtu.be/yVji4ZQECVw
+  SharePoint: https://wadhwanifoundation-my.sharepoint.com/:v:/g/personal/charles_bolton_wadhwanifoundation_org/IQDyUsRfdbw3QotSvitgb1eeAWOUKTCh2ON-1JQmT7-AM6A?nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJTdHJlYW1XZWJBcHAiLCJyZWZlcnJhbFZpZXciOiJTaGFyZURpYWxvZy1MaW5rIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXcifX0%3D&e=IziBKP
+- **Module 1 Class Session: Problem Identification (15 September 2026)** — Shared by Facilitator Charles Bolton:
+  YouTube: https://youtu.be/6q4uPBO_sDc
+- **Module 1 Coaching & Q&A: Problem Statement (17 September 2026)** — Shared by Facilitator Charles Bolton:
+  YouTube: https://youtu.be/-6G7LXiu47o
+- **Module 2, Part 1 Class Session: Customer Identification & Validation (22 September 2026)** — Shared by Facilitator Charles Bolton:
+  YouTube: https://youtu.be/C9gaW26GfWw`
   },
   {
     course_name: 'General',
