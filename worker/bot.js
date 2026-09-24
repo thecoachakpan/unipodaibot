@@ -760,6 +760,7 @@ async function getRelevantKnowledgeContext(userQuery, maxEntries = 5) {
     if (queryLower.includes('mit') && entry.course_name === 'MIT') score += 5;
     if ((queryLower.includes('wadhwani') || queryLower.includes('ignite') || queryLower.includes('charles')) && entry.course_name === 'Wadhwani') score += 5;
     if ((queryLower.includes('ethiopia') || queryLower.includes('eaii') || queryLower.includes('bootcamp') || queryLower.includes('addis')) && entry.course_name === 'Ethiopia AI') score += 5;
+    if (/\b(recording|recordings|meeting|meetings|session|sessions|video|videos|link|links|replay|replays|watch)\b/i.test(queryLower) && entry.content.includes('Session Recordings')) score += 10;
 
     return { entry, score };
   });
@@ -822,7 +823,7 @@ RULES:
 11. Satisfaction: Acknowledge gratitude warmly. For dissatisfaction, apologize and ask clarifying questions. If persistent after accurate help, escalate: "Reach out to program admins (@Gift, @Diane, @Charles, @Jeovaire, @Munira) or email unipods.regional@undp.org."
 12. Admin Tags: When asked to tag admins, include native WhatsApp @tags in your response.
 13. Unverified: EN: "I don't have verified information on this yet. Please contact unipods.regional@undp.org." FR: "Je n'ai pas encore d'informations vérifiées. Veuillez contacter unipods.regional@undp.org."
-14. Drive Privacy: NO public Google Drive folder exists. NEVER mention, link, or expose Drive URLs. Deliver documents as native .pdf attachments only. If unavailable, direct to unipods.regional@undp.org or uaisupport@mit.edu.
+14. Document & Recording Delivery: Deliver official catalog documents (FAQ Pack, Info Pack, Guides, Templates) as native .pdf file attachments directly in chat when requested. Meeting recording links and YouTube streams stored in the knowledge base (e.g. MIT onboarding call, Wadhwani YouTube links, Ethiopian AI Needs Assessment recording) MUST be shared directly when participants ask for meeting or session recordings. Never claim you lack access to recordings.
 15. Academic Integrity: Do NOT debug, fix, or solve assignments/code for participants. Only explain requirements, deadlines, submission formats, and portal navigation. Direct assignment help requests to facilitators or unipods.regional@undp.org.
 16. Admin Roles:
     - Diane (+250 783188655): Primary Group Coordinator. Tag for general cohort issues / unipods.regional@undp.org referrals.
