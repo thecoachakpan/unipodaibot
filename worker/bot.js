@@ -1356,7 +1356,7 @@ async function startBot() {
       } catch (replyErr) {}
     }
 
-    let cleanPrompt = rawText.replace(/@bot/gi, '').replace(/!ask/gi, '').replace(/!respond/gi, '').replace(/!answer/gi, '').replace(/podpal/gi, '').replace(/bot/gi, '').trim();
+    let cleanPrompt = rawText.replace(/@\d+/g, '').replace(/@bot/gi, '').replace(/!ask/gi, '').replace(/!respond/gi, '').replace(/!answer/gi, '').replace(/podpal/gi, '').replace(/\bbot\b/gi, '').trim();
     
     // Force-Response Quote Reply Engine: If participant/admin quote-replies an unresponded message and tags @bot, !ask, !respond, or !answer,
     // use the quoted message text as the prompt if no extra prompt text was provided!
@@ -1371,8 +1371,10 @@ async function startBot() {
 
     // Robust Bot JID and Number Extraction for WhatsApp Groups
     const rawBotId = sock.user?.id || '';
-    const botNumber = rawBotId.replace(/[^0-9]/g, '');
-    const quotedParticipantNumber = (contextInfo?.participant || '').replace(/[^0-9]/g, '');
+    // Baileys returns JIDs like "2349093696284:50@s.whatsapp.net" — strip device suffix before extracting digits
+    const botNumber = rawBotId.split(':')[0].replace(/[^0-9]/g, '');
+    const botLid = rawBotId.includes('@') ? rawBotId : ''; // Full JID for LID comparison
+    const quotedParticipantNumber = (contextInfo?.participant || '').split(':')[0].replace(/[^0-9]/g, '');
     
     // Check if user is quote-replying to a message sent by PodPal BOT in groups
     const isQuotedBotReply = isGroup && (
@@ -1381,11 +1383,18 @@ async function startBot() {
     );
 
     const mentionedJids = contextInfo?.mentionedJid || [];
-    const isBotMentionedNative = mentionedJids.some(jid => jid.replace(/[^0-9]/g, '').includes(botNumber));
+    // Native @mention detection: check if ANY mentionedJid matches the bot's phone number or full JID
+    // WhatsApp multi-device may send phone-based OR @lid-based JIDs in mentionedJid
+    const isBotMentionedNative = botNumber && mentionedJids.some(jid => {
+      const jidDigits = jid.split(':')[0].replace(/[^0-9]/g, '');
+      return jidDigits.includes(botNumber) || botNumber.includes(jidDigits) || jid === rawBotId;
+    });
+    // Text-based fallback: check if the raw message text contains "@<botPhoneNumber>"
+    const isBotMentionedInText = botNumber && rawText.includes(`@${botNumber}`);
 
     const mentionedAdmin = FACILITATOR_MAP.find(a => cleanLower.includes(a.name));
     const mentionsAdmin = !!mentionedAdmin;
-    const isTagged = isBotMentionedNative || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('!respond') || cleanLower.includes('!answer') || cleanLower.includes('podpal') || cleanLower.includes('bot');
+    const isTagged = isBotMentionedNative || isBotMentionedInText || cleanLower.includes('@bot') || cleanLower.includes('!ask') || cleanLower.includes('!respond') || cleanLower.includes('!answer') || cleanLower.includes('podpal') || cleanLower.includes('bot');
 
     // Standalone Tag Handler: If bot is tagged without prompt text, scan recent unresponded messages
     if (isTagged && cleanPrompt.length === 0 && !(isGroup && currentConfig.chat_scope === 'group_deactivated')) {
