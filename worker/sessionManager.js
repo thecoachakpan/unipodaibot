@@ -42,22 +42,60 @@ export function initSessionSupabase(supabase) {
 /**
  * Records that a user has an active DM session with the bot.
  * Persists to Supabase so it survives process restarts and Render spin-downs.
+ *
+ * @param {string} phoneJid - Phone-based JID for lookup (e.g. "2349093696284@s.whatsapp.net")
+ * @param {string} [transportJid] - Raw transport JID used by Baileys (could be @lid or @s.whatsapp.net).
+ *   This is the JID that sock.sendMessage must use to avoid Signal session ratchet corruption.
  */
-export async function recordDMSession(senderJid) {
-  const key = normalizeSessionJid(senderJid);
-  if (!key || key.includes('@g.us') || key.includes('@lid')) return;
+export async function recordDMSession(phoneJid, transportJid) {
+  const key = normalizeSessionJid(phoneJid);
+  if (!key || key.includes('@g.us')) return;
+
+  // If phoneJid is an @lid and no separate phone JID was provided, still record it
+  // so the session exists. Group-side lookups will use the phone JID from group metadata.
+  const isLidOnly = key.includes('@lid');
+  if (isLidOnly && !transportJid) {
+    // @lid-only session (no phone resolution available) — store under @lid key
+    // This allows hasActiveDMSession to find it when queried with the same @lid
+  }
+
+  // Determine the actual transport JID to persist
+  const rawTransport = transportJid ? normalizeSessionJid(transportJid) : key;
 
   if (supabaseClient) {
     try {
-      const { error } = await supabaseClient.from('dm_sessions').upsert({
+      const upsertData = {
         jid: key,
         last_dm_at: new Date().toISOString()
-      }, { onConflict: 'jid' });
+      };
+      // Store transport_jid if different from the lookup key (gracefully skip if column doesn't exist yet)
+      if (rawTransport !== key) {
+        upsertData.transport_jid = rawTransport;
+      }
+
+      const { error } = await supabaseClient.from('dm_sessions').upsert(
+        upsertData,
+        { onConflict: 'jid' }
+      );
 
       if (error) {
-        console.error(`[DM Session Persist Error]: ${error.message} (code: ${error.code})`);
+        // If transport_jid column doesn't exist yet, retry without it
+        if (error.message?.includes('transport_jid')) {
+          const { error: retryErr } = await supabaseClient.from('dm_sessions').upsert({
+            jid: key,
+            last_dm_at: new Date().toISOString()
+          }, { onConflict: 'jid' });
+          if (retryErr) {
+            console.error(`[DM Session Persist Error]: ${retryErr.message}`);
+          } else {
+            console.log(`[DM Session] 💾 Persisted DM session for ${key} (no transport_jid column)`);
+          }
+        } else {
+          console.error(`[DM Session Persist Error]: ${error.message} (code: ${error.code})`);
+        }
       } else {
-        console.log(`[DM Session] 💾 Persisted DM session for ${key}`);
+        const transportLabel = rawTransport !== key ? ` (transport: ${rawTransport})` : '';
+        console.log(`[DM Session] 💾 Persisted DM session for ${key}${transportLabel}`);
       }
     } catch (err) {
       console.error('[DM Session Persist Exception]:', err?.message || err);
@@ -65,6 +103,49 @@ export async function recordDMSession(senderJid) {
   } else {
     console.warn('[DM Session] ⚠️ supabaseClient is null — cannot persist DM session');
   }
+}
+
+/**
+ * Retrieves the actual transport JID for cross-context DM delivery.
+ * When sending a DM from group context, we must use the JID that matches
+ * the user's active Signal encryption session (often @lid, not @s.whatsapp.net).
+ *
+ * @param {string} phoneJid - Phone-based JID to look up
+ * @returns {Promise<string|null>} The transport JID to use with sock.sendMessage, or null if not found
+ */
+export async function getTransportJidForDM(phoneJid) {
+  const key = normalizeSessionJid(phoneJid);
+  if (!key || !supabaseClient) return null;
+
+  try {
+    const cutoff = new Date(Date.now() - DM_SESSION_TTL_MS).toISOString();
+    const { data, error } = await supabaseClient
+      .from('dm_sessions')
+      .select('jid, transport_jid, last_dm_at')
+      .eq('jid', key)
+      .gt('last_dm_at', cutoff)
+      .maybeSingle();
+
+    if (error) {
+      // If transport_jid column doesn't exist, fall back to jid
+      if (error.message?.includes('transport_jid')) {
+        return phoneJid; // Column doesn't exist yet, use phone JID
+      }
+      console.error(`[DM Transport Lookup Error]: ${error.message}`);
+      return null;
+    }
+
+    if (data) {
+      // Prefer transport_jid (the actual @lid or @s.whatsapp.net the user DMs from)
+      const transport = data.transport_jid || data.jid;
+      console.log(`[DM Transport] Found transport JID for ${key}: ${transport}`);
+      return transport;
+    }
+  } catch (err) {
+    console.error('[DM Transport Lookup Exception]:', err?.message || err);
+  }
+
+  return null;
 }
 
 /**

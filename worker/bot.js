@@ -24,6 +24,7 @@ import {
   clearSessionHistory,
   hasActiveDMSession,
   recordDMSession,
+  getTransportJidForDM,
   initSessionSupabase,
   stopCleanupTimer
 } from './sessionManager.js';
@@ -2090,8 +2091,11 @@ Respond with ONLY the JSON object, nothing else.`;
             if (!wantsDocHere && wantsDocPrivately) {
               if (hasValidDmTarget && userHasDMForDoc) {
                 // User wants private delivery AND has an active DM session → send to DM
+                // CRITICAL: Use the transport JID (could be @lid) to avoid Signal ratchet corruption
+                const docTransportJid = await getTransportJidForDM(targetDmJid) || targetDmJid;
+                console.log(`[Doc DM Delivery] Resolved transport JID: ${docTransportJid} (from ${targetDmJid})`);
                 try {
-                  await sock.sendMessage(targetDmJid, {
+                  await sock.sendMessage(docTransportJid, {
                     document: pdfBuffer,
                     fileName: targetDoc.file_name,
                     mimetype: 'application/pdf',
@@ -2195,10 +2199,11 @@ Respond with ONLY the JSON object, nothing else.`;
       const isFrench = ['bonjour', 'salut'].includes(cleanPrompt.toLowerCase().trim());
       const welcome = getWelcomeMessage(isFrench);
       updateSessionHistory(senderJid, cleanPrompt, welcome);
-      // Record DM session under phone-based JID (targetDmJid) for cross-context group→DM lookup.
-      // senderJid in DMs can be a @lid JID, but group-side resolves to phone-based @s.whatsapp.net.
-      recordDMSession(targetDmJid || senderJid);
-      console.log(`[DM Session Debug - Greeting] senderJid=${senderJid}, persistedAs=${targetDmJid || senderJid}`);
+      // Record DM session: phoneJid for group-side lookup, senderJid as transport for actual delivery.
+      // senderJid in DMs can be a @lid JID — we must preserve it so cross-context delivery
+      // sends to the correct encryption ratchet instead of a rewritten phone JID.
+      recordDMSession(targetDmJid || senderJid, senderJid);
+      console.log(`[DM Session Debug - Greeting] senderJid=${senderJid}, lookupKey=${targetDmJid || senderJid}, transport=${senderJid}`);
       await sock.sendPresenceUpdate('composing', senderJid);
       await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
       await sock.sendPresenceUpdate('paused', senderJid);
@@ -2313,8 +2318,8 @@ ${relevantKB}`;
           ? `${cleanPrompt} [Note: Participant requested a translation turn for quoted text. Primary conversation language remains English.]`
           : cleanPrompt;
         updateSessionHistory(senderJid, historyUserText, replyText);
-        // Record DM session under phone-based JID for cross-context group→DM lookup
-        recordDMSession(targetDmJid || senderJid);
+        // Record DM session: phoneJid for group-side lookup, senderJid as transport for delivery
+        recordDMSession(targetDmJid || senderJid, senderJid);
       }
 
       // ----------------------------------------------------
@@ -2346,9 +2351,12 @@ ${relevantKB}`;
         const mentionJids = dmPhoneJid ? [dmPhoneJid] : [rawParticipant];
 
         if (userHasDM && targetDmJid) {
-          // Route detailed response to DM using resolved phone JID
+          // Route detailed response to DM using the ACTUAL transport JID (may be @lid)
+          // to avoid Signal session ratchet corruption
+          const dmTransportJid = await getTransportJidForDM(targetDmJid) || targetDmJid;
+          console.log(`[Smart DM Routing] Resolved transport JID: ${dmTransportJid} (from ${targetDmJid})`);
           try {
-            await sock.sendMessage(targetDmJid, { text: replyText });
+            await sock.sendMessage(dmTransportJid, { text: replyText });
             await sock.sendPresenceUpdate('paused', senderJid);
             await sock.sendMessage(senderJid, {
               text: `Hi ${displayTag}, check your DM! I've responded to your message. 😊`,
