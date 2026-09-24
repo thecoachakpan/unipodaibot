@@ -32,6 +32,7 @@ import { uploadToGoogleDrive, downloadFromGoogleDrive } from './googleDrive.js';
 import { startReminderScheduler, stopReminderScheduler, createScheduledReminder } from './reminderScheduler.js';
 import { processFacilitatorMessage } from './facilitatorKnowledgePipeline.js';
 import { matchRequestedDocument } from './documentCatalog.js';
+import { syncGoogleDriveCatalog } from './syncDriveCatalog.js';
 
 import WebSocket from 'ws';
 import qrcode from 'qrcode-terminal';
@@ -1079,7 +1080,9 @@ async function startBot() {
       console.log('✅ PodPal BOT WhatsApp Worker online.');
       startReminderScheduler(sock);
       initSessionSupabase(supabase); // Initialize Supabase-backed DM session persistence
-      startGeminiCacheRefresh(); // Initialize explicit Gemini context cache for 75% cheaper system prompt billing
+      startGeminiCacheRefresh();
+      syncGoogleDriveCatalog().catch(err => console.warn('[Drive Sync Warning]:', err?.message || err));
+      setInterval(() => syncGoogleDriveCatalog().catch(err => console.warn('[Drive Sync Warning]:', err?.message || err)), 10 * 60 * 1000); // Initialize explicit Gemini context cache for 75% cheaper system prompt billing
     }
   });
 
